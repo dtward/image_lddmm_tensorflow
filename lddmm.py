@@ -325,7 +325,7 @@ def lddmm(I,J,**kwargs):
             + phi1tinv0_2*(phi1tinv1_0*phi1tinv2_1 - phi1tinv1_1*phi1tinv2_0)
 
         # get the lambda for this time
-        lambda_ = interp3(x0I, x1I, x2I, lambda1, phiinv0, phiinv1, phiinv2)*detjac
+        lambda_ = interp3(x0I, x1I, x2I, lambda1, phi1tinv0, phi1tinv1, phi1tinv2)*detjac
 
         # set up the gradient
         grad0 = lambda_*I_0
