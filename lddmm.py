@@ -392,6 +392,7 @@ def lddmm(I,J,**kwargs):
             ylim = ax.get_ylim()
             ax.set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
             ax.legend(['Etot','Ematch','Ereg'])
+            f2.suptitle('Energy minimization')
 
             f0.canvas.draw()
             f1.canvas.draw()
