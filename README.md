@@ -5,9 +5,10 @@ Image mapping using the LDDMM algorithm, implemented in tensorflow
 This package contains functions to run deformable image registration in python, using tensorflow to handle high performance computing issues.
 
 
-| | |
+|Atlas|Target |
 |---|---|
 |<img src="human_mri_example_atlas.png" alt="Human MRI atlas" width="300"/>  |  <img src="human_mri_example_target.png" alt="Human MRI target" width="300"/>|
+|Initial Error|Final Error|
 |<img src="human_mri_example_error_start.png" alt="Human MRI atlas" width="300"/>  |  <img src="human_mri_example_error_end.png" alt="Human MRI target" width="300"/>|
 
 
