@@ -7,8 +7,8 @@ This package contains functions to run deformable image registration in python, 
 
 | | |
 |---|---|
-|<img src="human_mri_example_atlas.png" alt="Human MRI atlas" width="256"/>  |  <img src="human_mri_example_target.png" alt="Human MRI target" width="256"/>|
-|<img src="human_mri_example_error_start.png" alt="Human MRI atlas" width="256"/>  |  <img src="human_mri_example_error_end.png" alt="Human MRI target" width="256"/>|
+|<img src="human_mri_example_atlas.png" alt="Human MRI atlas" width="300"/>  |  <img src="human_mri_example_target.png" alt="Human MRI target" width="300"/>|
+|<img src="human_mri_example_error_start.png" alt="Human MRI atlas" width="300"/>  |  <img src="human_mri_example_error_end.png" alt="Human MRI target" width="300"/>|
 
 
 
