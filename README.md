@@ -11,6 +11,7 @@ Below shows an illustration of deforming an atlas human MRI to match a target hu
 |<img src="human_mri_example_atlas.png" alt="Human MRI atlas" width="400"/>  |  <img src="human_mri_example_target.png" alt="Human MRI target" width="400"/>|
 |Initial Error|Final Error|
 |<img src="human_mri_example_error_start.png" alt="Human MRI atlas" width="400"/>  |  <img src="human_mri_example_error_end.png" alt="Human MRI target" width="400"/>|
+|Deformed atlas |  <img src="human_mri_example_deformed_atlas.png" alt="Human MRI target" width="400"/>|
 
 
 
