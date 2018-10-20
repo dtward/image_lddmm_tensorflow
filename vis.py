@@ -49,7 +49,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
                   vmin=vmin, vmax=vmax)
         ax.set_xlabel('x2')
         ax.xaxis.tick_top()
-        ax.xaxis.set_label_position('top')
+        #ax.xaxis.set_label_position('top') # its better on the bottom because it can serve as a label for the next row
         if i==0:
             ax.set_ylabel('x1')
         else:
@@ -74,6 +74,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
         
         # no x labels necessary
         ax.set_xticklabels([])
+        ax.xaxis.tick_top() # better on top so it more obviously shares the label
         
         
         if i==0:
@@ -83,6 +84,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
         
         ax1.append(ax)
     axs.append(ax1)
+    
     
     # the third slice fix the third index
     ax2 = []
