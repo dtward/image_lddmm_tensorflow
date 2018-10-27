@@ -11,7 +11,7 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2):
     ''' 
     Linear interpolation
     Interpolate a 3D tensorflow image I
-    with voxels corresponding to locations in x0, x1, x2 (1d arrays)
+    with voxels corresponding to locations in x0, x1, x2 (1d np arrays)
     at the points phi0, phi1, phi2 (3d arrays)
     To do: think about how to apply 0 boundary conditions (rather than nearest)
     The simplest way is just to pad the images with 0 by one voxel on all sides
@@ -24,6 +24,9 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2):
     # get the size
     dx = [x0[1]-x0[0], x1[1]-x1[0], x2[1]-x2[0]]
     nx = [len(x0), len(x1), len(x2)]
+    shape = tf.shape(phi0)
+    nxout = [shape[0],shape[1],shape[2]]    
+    
     #convert to index
     phi0_index = (phi0 - x0[0])/dx[0]
     phi1_index = (phi1 - x1[0])/dx[1]
@@ -86,14 +89,16 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2):
     I111_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_111, dtype=idtype))
     
     # reshape it
-    I000 = tf.reshape(I000_flat,nx)
-    I001 = tf.reshape(I001_flat,nx)
-    I010 = tf.reshape(I010_flat,nx)
-    I011 = tf.reshape(I011_flat,nx)
-    I100 = tf.reshape(I100_flat,nx)
-    I101 = tf.reshape(I101_flat,nx)
-    I110 = tf.reshape(I110_flat,nx)
-    I111 = tf.reshape(I111_flat,nx)
+    # note I had a mistake here and I used nx rather than nxout
+    # but, this is causing me lots of trouble
+    I000 = tf.reshape(I000_flat,nxout)
+    I001 = tf.reshape(I001_flat,nxout)
+    I010 = tf.reshape(I010_flat,nxout)
+    I011 = tf.reshape(I011_flat,nxout)
+    I100 = tf.reshape(I100_flat,nxout)
+    I101 = tf.reshape(I101_flat,nxout)
+    I110 = tf.reshape(I110_flat,nxout)
+    I111 = tf.reshape(I111_flat,nxout)
 
     # combine them!
     Il = I000*(1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
@@ -147,12 +152,15 @@ def lddmm(I,J,**kwargs):
     Cost function is \frac{1}{2\sigma^2_R}\int \int v_t^T(x) A v_t(x) *(1/nT) dx dt
         + \frac{1}{2\sigma^2_M}\int |I(\varphi_1^{-1}(x)) - J(x)|^2 dx
     
-    TO DO: Add step sizes as placeholders
+    TO DO: Add step sizes as placeholders (done)
+    
+    If nt is 0, only do affine
     '''
     tf.reset_default_graph()
 
     verbose = 1
     
+    ################################################################################
     # default parameters
     params = dict();
     params['x0I'] = np.arange(I.shape[0], dtype=float)
@@ -174,13 +182,14 @@ def lddmm(I,J,**kwargs):
     params['naffine'] = 20 # do affine only for this number
     params['post_affine_reduce'] = 0.1 # reduce affine step sizes by this much once nonrigid starts
     
+    
     # initial guess
     params['A0'] = np.eye(4)
     
     if verbose: print('Set default parameters')
     
     
-    
+    ################################################################################
     # parameter setup
     # start by updating with any input arguments
     params.update(kwargs)
@@ -219,10 +228,16 @@ def lddmm(I,J,**kwargs):
     if 'dt' in params:
         dt = params['dt']
     else:
-        dt = 1.0/nt
+        if nt > 0:
+            dt = 1.0/nt
+        else:
+            dt = 0.0
     
     niter = params['niter']    
     naffine = params['naffine']
+    if nt == 0: # only do affine
+        naffine = niter+1
+        
     
     # I may want these epsilons to be placeholders
     eV = params['eV']
@@ -230,13 +245,21 @@ def lddmm(I,J,**kwargs):
     eT = params['eT']
     rigid = params['rigid']
     post_affine_reduce = params['post_affine_reduce']
+    print('initial affine transform {}'.format(params['A0']))
     A0 = tf.convert_to_tensor(params['A0'], dtype=dtype)
     eV_ph = tf.placeholder(dtype=dtype)
     eL_ph = tf.placeholder(dtype=dtype)
     eT_ph = tf.placeholder(dtype=dtype)
     
     
+    I = tf.convert_to_tensor(I,dtype=dtype)
+    J = tf.convert_to_tensor(J,dtype=dtype)
+    
     if verbose: print('Got parameters')
+    
+        
+        
+        
         
         
     # build kernels
@@ -278,11 +301,15 @@ def lddmm(I,J,**kwargs):
     
     if verbose: print('built tensorflow variables')
     
-    # define gradient step as a graph
+    
+    
+    ################################################################
+    # define gradient calculations and updates in tensorflow graph
+    # initialize time dependent flow
     It = [I]
-    phiinv0 = X0I
-    phiinv1 = X1I
-    phiinv2 = X2I
+    phiinv0 = tf.convert_to_tensor(X0I, dtype=dtype) # make sure these are tensors
+    phiinv1 = tf.convert_to_tensor(X1I, dtype=dtype)
+    phiinv2 = tf.convert_to_tensor(X2I, dtype=dtype)
     ERt = []
     for t in range(nt):
         # slice the velocity for convenience
@@ -303,8 +330,8 @@ def lddmm(I,J,**kwargs):
         # deform the image, I will need this for image gradient computations
         It.append(interp3(x0I, x1I, x2I, I, phiinv0, phiinv1, phiinv2))
 
-        # get regularization energy
-        # this is probably the fastest way to compute energy, note the normalizer 1/(number of elements)
+        # take the Fourier transform, for computing energy directly in Fourier domain
+        # note the normalizer 1/(number of elements)
         v0hat = tf.fft3d(tf.complex(v0, 0.0))
         v1hat = tf.fft3d(tf.complex(v1, 0.0))
         v2hat = tf.fft3d(tf.complex(v2, 0.0))
@@ -316,6 +343,7 @@ def lddmm(I,J,**kwargs):
         ERt.append(ER_)
     
     # now apply affine tranform
+    # note that we combine the transformations so there is no "double interpolation"
     B = tf.linalg.inv(A)
     X0s = B[0,0]*X0J + B[0,1]*X1J + B[0,2]*X2J + B[0,3]
     X1s = B[1,0]*X0J + B[1,1]*X1J + B[1,2]*X2J + B[1,3]
@@ -327,15 +355,22 @@ def lddmm(I,J,**kwargs):
     
     # here I will include contrast transform (later)
     
-    # get energy
-    ER = tf.reduce_sum(tf.stack(ERt))
+    
+    ################################################################################
+    # get the energy of the flow
+    if nt > 0:
+        ER = tf.reduce_sum(tf.stack(ERt))
+    else:
+        ER = tf.convert_to_tensor(0.0,dtype=tf.float64)
     ER *= dt*dxI[0]*dxI[1]*dxI[2]/sigmaR2/2.0
-    # typically I would also divide by nx, but since I'm using reduce mean instead of reduce sum, I do not
-    EM = tf.reduce_sum( tf.cast( tf.pow(AphiI - J, 2) , dtype=tf.float64) )/sigmaM2*dxI[0]*dxI[1]*dxI[2]/2.0
+    # typically I would also divide by nx, but since I'm using reduce mean instead of reduce sum when summing over space, I do not
+    EM = tf.reduce_sum( tf.cast( tf.pow(AphiI - J, 2), dtype=tf.float64) )/sigmaM2*dxI[0]*dxI[1]*dxI[2]/2.0    
     E = EM + ER
     
+    ################################################################################
     # now we compute the gradient with respect to affine transform parameters
     # this is for right perturbations, which I think I like now
+    # i.e. A \mapsto A expm( e dA)
     AphiI_0, AphiI_1, AphiI_2 = grad3(AphiI, dxJ)
     gradAcol = []
     for r in range(3):
@@ -362,14 +397,16 @@ def lddmm(I,J,**kwargs):
         gradA -= tf.transpose(gradA)
         # now we also have translation on the bottom, but this will get multiplied by zero below
     
-    # now compute the error of the cost function with respect to the deformed image
-    # I may want to zero pad it, and get a padded domain as well, that way I can have nice zero boundary conditions
+    
+    ################################################################################
+    # Now the gradient with respect to the deformation parameters
+    # TODO: I may want to zero pad it, and get a padded domain as well, that way I can have nice zero boundary conditions which are appropriate for this error
     lambda1 = -(AphiI - J)/sigmaM2
     
     # flow the error backwards
-    phi1tinv0 = X0I
-    phi1tinv1 = X1I
-    phi1tinv2 = X2I
+    phi1tinv0 = tf.convert_to_tensor(X0I, dtype=dtype)
+    phi1tinv1 = tf.convert_to_tensor(X1I, dtype=dtype)
+    phi1tinv2 = tf.convert_to_tensor(X2I, dtype=dtype)
     vt0new_ = []
     vt1new_ = []
     vt2new_ = []
@@ -401,12 +438,12 @@ def lddmm(I,J,**kwargs):
         Aphi1tinv2 = A[2,0]*phi1tinv0 + A[2,1]*phi1tinv1 + A[2,2]*phi1tinv2 + A[2,3];        
         lambda_ = interp3(x0J, x1J, x2J, lambda1, Aphi1tinv0, Aphi1tinv1, Aphi1tinv2)*detjac*tf.linalg.det(A)
 
-        # set up the gradient
+        # set up the gradient at this time        
         grad0 = lambda_*I_0
         grad1 = lambda_*I_1
         grad2 = lambda_*I_2
 
-        # smooth it
+        # smooth it        
         grad0 = tf.real(tf.ifft3d(tf.fft3d(tf.complex(grad0, 0.0))*Khattf))
         grad1 = tf.real(tf.ifft3d(tf.fft3d(tf.complex(grad1, 0.0))*Khattf))
         grad2 = tf.real(tf.ifft3d(tf.fft3d(tf.complex(grad2, 0.0))*Khattf))
@@ -415,31 +452,36 @@ def lddmm(I,J,**kwargs):
         grad0 = grad0 + v0/sigmaR2
         grad1 = grad1 + v1/sigmaR2
         grad2 = grad2 + v2/sigmaR2
+        
+        # note that an alternate strategy is to add vhat in the Fourier domain
+        # this will make it easier to include smoothing (i.e. preconditioned gradient desent)
+        # which can be good for optimization
 
         # and calculate the new v
         vt0new_.append(v0 - eV_ph*grad0)
         vt1new_.append(v1 - eV_ph*grad1)
         vt2new_.append(v2 - eV_ph*grad2)
 
-    # stack
-    vt0new = tf.stack(vt0new_[::-1],axis=3)
-    vt1new = tf.stack(vt1new_[::-1],axis=3)
-    vt2new = tf.stack(vt2new_[::-1],axis=3)
+    # stack all the times
+    if nt > 0:
+        vt0new = tf.stack(vt0new_[::-1], axis=3)
+        vt1new = tf.stack(vt1new_[::-1], axis=3)
+        vt2new = tf.stack(vt2new_[::-1], axis=3)
     
-    # update affine (if I make my e's placeholders, I'll have to redo this)
-    #e = np.zeros((4,4))
-    #e[:3,:3] = eL
-    #e[:3,-1] = eT
+    ################################################################################
+    # update affine parameters
+    # use gradient descent with a right perturbation on the group
     ones_linear = np.zeros((4,4))
     ones_linear[:3,:3] = 1.0
     ones_translation = np.zeros((4,4))
     ones_translation[:3,-1] = 1.0
-    e = ones_linear * eL_ph + ones_translation * eT_ph
-    #e = tf.stack([tf.stack([tf.ones((3,3))*eL,tf.ones((3,1))*eT]),tf.ones((1,4))])
+    e = ones_linear * eL_ph + ones_translation * eT_ph    
     Anew = tf.matmul(A, tf.linalg.expm(-e*gradA) )
 
     
+    ################################################################################
     # define a graph operation to update
+    # hopefully treating step_A separately will allow it to be computed more quickly
     step = tf.group(
       A.assign(Anew),
       vt0.assign(vt0new),
@@ -451,12 +493,13 @@ def lddmm(I,J,**kwargs):
       vt2.assign(vt2new))
     step_A = A.assign(Anew)
     
-
     if verbose: print('Computation graph defined')
     
     
-    
+    ################################################################################
     # now that that the graph is defined, we can do gradient descent
+    # I will do some plotting during the computations so that hopefully you can kill
+    # the job if things are not working without wasting a lot of time
     EMall = []
     ERall = []
     Eall = []
@@ -465,25 +508,28 @@ def lddmm(I,J,**kwargs):
     f1 = plt.figure()
     f2,ax = plt.subplots(1,3)
     with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+        sess.run(tf.global_variables_initializer()) # this is always required
         
-        
+        # start the gradient descent loop
         for it in range(niter):
-            # take a step of gradient descent
-            # everything I evaluate should be run at once
+            # take a step of gradient descent, and get some values to plot
+            # for the first naffine steps, we just update affine
+            # afterwards, we update both simultaneously, but we shrink the affine steps
+            # because otherwise we tend to get oscillations
             if it < naffine:
-                _,EM_,ER_,E_,Idnp,lambda1np,Anp = sess.run([step_A,EM,ER,E,It[-1],lambda1,Anew], feed_dict={eL_ph:eL, eT_ph:eT})
+                _,EM_,ER_,E_,Idnp,lambda1np,Anp = sess.run([step_A,EM,ER,E,AphiI,lambda1,Anew], feed_dict={eL_ph:eL, eT_ph:eT})
             else:
                 # note use smaller affine parameters
-                _,EM_,ER_,E_,Idnp,lambda1np,Anp = sess.run([step,EM,ER,E,It[-1],lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
+                _,EM_,ER_,E_,Idnp,lambda1np,Anp = sess.run([step,EM,ER,E,AphiI,lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
+            # draw some pictures    
             f0.clf()
-            vis.imshow_slices(Idnp, x=xI, fig=f0)
+            vis.imshow_slices(Idnp, x=xJ, fig=f0)
             f0.suptitle('Deformed atlas')
             f1.clf()
-            vis.imshow_slices(lambda1np, x=xI, fig=f1)
+            vis.imshow_slices(lambda1np, x=xJ, fig=f1)
             f1.suptitle('Error')
 
-            # energy
+            # save energy for each iteration
             EMall.append(EM_)
             ERall.append(ER_)
             Eall.append(E_)
@@ -495,18 +541,16 @@ def lddmm(I,J,**kwargs):
             ax[0].legend(['Etot','Ematch','Ereg'])
             ax[0].set_title('Energy minimization')
             
+            # show some parameters to visualize affine transforms
             # translation
             Aall.append(Anp.ravel())
-            #print(Aall)
             Aallnp = np.array(Aall)
-            #print(Aallnp)
             ax[1].cla()
             ax[1].plot(range(it+1),Aallnp[:,3:12:4])
             xlim = ax[1].get_xlim()
             ylim = ax[1].get_ylim()
             ax[1].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
             ax[1].set_title('translation')
-            #print(Aallnp[:,3:12:4])
             ax[2].cla()
             ax[2].plot(range(it+1),Aallnp[:,0:3])
             ax[2].plot(range(it+1),Aallnp[:,4:7])
@@ -516,12 +560,13 @@ def lddmm(I,J,**kwargs):
             ax[2].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
             ax[2].set_title('linear')
             
-
+            # force drawing now (otherwise python will wait until code has stopped running)
             f0.canvas.draw()
             f1.canvas.draw()
             f2.canvas.draw()
             #f0.savefig('lddmm3d_example_iteration_{:03d}.png'.format(i))
-            print('Finished iteration {}, energy {} (match {}, reg {})'.format(it, E_, EM_, ER_))
-        # output
-        vt0np,vt1np,vt2np,Anp = sess.run([vt0new,vt1new,vt2new,Anew])
-    return vt0np,vt1np,vt2np,Anp
+            print('Finished iteration {}, energy {:3e} (match {:3e}, reg {:3e})'.format(it, E_, EM_, ER_))
+            
+        # output variables
+        Anp,vt0np,vt1np,vt2np,phiinv0np,phiinv1np,phiinv2np,phi1tinv0np,phi1tinv1np,phi1tinv2np = sess.run([A,vt0,vt1,vt2,phiinv0,phiinv1,phiinv2,phi1tinv0,phi1tinv1,phi1tinv2])
+    return Anp,vt0np,vt1np,vt2np,phiinv0np,phiinv1np,phiinv2np,phi1tinv0np,phi1tinv1np,phi1tinv2np
