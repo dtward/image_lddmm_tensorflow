@@ -566,6 +566,7 @@ def lddmm(I,J,**kwargs):
     f1 = plt.figure()    
     f2,ax = plt.subplots(1,3)
     fW = plt.figure()
+    fWA = plt.figure()
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer()) # this is always required
         
@@ -583,15 +584,20 @@ def lddmm(I,J,**kwargs):
                 print('taking affine and deformation step')
                 _, EM_, ER_, E_, Idnp, lambda1np, Anp = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
             
-            print(Anp)
+            #print(Anp)
             if (nMstep>0
                 and ( (it < naffine and not it%nMstep_affine) 
                  or (it >= naffine and not it%nMstep) ) ): # default behavior to not use weights
+                print('Updating weights')
                 _, WMnp, WAnp = sess.run([step_W,WMnew,WAnew])
                 fW.clf()
                 vis.imshow_slices(WMnp, x=xJ, fig=fW)
                 fW.suptitle('Weight')
                 fW.canvas.draw()
+                fWA.clf()
+                vis.imshow_slices(WAnp, x=xJ, fig=fWA)
+                fWA.suptitle('Weight')
+                fWA.canvas.draw()
                 
             # draw some pictures    
             f0.clf()
