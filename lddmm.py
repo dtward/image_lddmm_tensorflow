@@ -1,9 +1,10 @@
-print('Importing helper functions')
-
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 import vis
+import os
+import argparse
+import nibabel as nib
 
 dtype = tf.float32
 idtype = tf.int64
@@ -383,6 +384,7 @@ def lddmm(I,J,**kwargs):
     phiinvB2 = interp3(x0I, x1I, x2I, phiinv2 - X2I, X0s, X1s, X2s) + X2s
     AphiI = interp3(x0I, x1I, x2I, I, phiinvB0, phiinvB1, phiinvB2)
     
+    
     ################################################################################
     # here I will include contrast transform (just linear for now)
     WMsum = tf.reduce_sum(WM)
@@ -419,6 +421,7 @@ def lddmm(I,J,**kwargs):
     EA = tf.reduce_sum( tf.cast( tf.pow(CA - J, 2)*WA, dtype=tf.float64) )/sigmaM2*dxI[0]*dxI[1]*dxI[2]/2.0
     # let's just use these two for now
     E = EM + ER
+    
     
     ################################################################################
     # now we compute the gradient with respect to affine transform parameters
@@ -565,8 +568,9 @@ def lddmm(I,J,**kwargs):
     f0 = plt.figure()
     f1 = plt.figure()    
     f2,ax = plt.subplots(1,3)
-    fW = plt.figure()
-    fWA = plt.figure()
+    if nMstep > 0: # weights
+        fW = plt.figure()
+        fWA = plt.figure()
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer()) # this is always required
         
@@ -577,11 +581,11 @@ def lddmm(I,J,**kwargs):
             # afterwards, we update both simultaneously, but we shrink the affine steps
             # because otherwise we tend to get oscillations
             if it < naffine:
-                print('taking affine only step')
+                if verbose: print('taking affine only step')
                 _, EM_, ER_, E_, Idnp, lambda1np, Anp = sess.run([step_A,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL, eT_ph:eT})
             else:
                 # note use smaller affine parameters
-                print('taking affine and deformation step')
+                if verbose: print('taking affine and deformation step')
                 _, EM_, ER_, E_, Idnp, lambda1np, Anp = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
             
             #print(Anp)
@@ -630,6 +634,7 @@ def lddmm(I,J,**kwargs):
             ylim = ax[1].get_ylim()
             ax[1].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
             ax[1].set_title('translation')
+            # linear
             ax[2].cla()
             ax[2].plot(range(it+1),Aallnp[:,0:3])
             ax[2].plot(range(it+1),Aallnp[:,4:7])
@@ -647,6 +652,182 @@ def lddmm(I,J,**kwargs):
             #f0.savefig('lddmm3d_example_iteration_{:03d}.png'.format(i))
             print('Finished iteration {}, energy {:3e} (match {:3e}, reg {:3e})'.format(it, E_, EM_, ER_))
             
-        # output variables
+        # output variables (get them inside the session)
         Anp,vt0np,vt1np,vt2np,phiinv0np,phiinv1np,phiinv2np,phi1tinv0np,phi1tinv1np,phi1tinv2np = sess.run([A,vt0,vt1,vt2,phiinv0,phiinv1,phiinv2,phi1tinv0,phi1tinv1,phi1tinv2])
-    return Anp,vt0np,vt1np,vt2np,phiinv0np,phiinv1np,phiinv2np,phi1tinv0np,phi1tinv1np,phi1tinv2np
+    output = {'A':Anp,
+             'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np,
+             'phiinv0':phiinv0np, 'phiinv1':phiinv1np, 'phiinv2':phiinv2np,
+             'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
+             }
+    return output
+
+
+
+# if run as a script from the command line
+if __name__ == '__main__':
+    '''
+    When this module is run as a script from command line it will run LDDMM
+    Required command line options are
+    prefix: string to prefix all output files
+    atlas: filename of atlas image
+    target: filename of target image
+    scale: length scale of diffeomorphism
+    
+    Optional arguments are:
+    affine: filename that stores initial transformation (4x4 matrix)
+    '''
+    
+    # create parser
+    parser = argparse.ArgumentParser(description='Run LDDMM between an atlas and target image.')    
+
+    # add required arguments
+    parser.add_argument('prefix', type=str, help='string prefix for all outputs (can include a directory, directories should have trailing slashes)')
+    parser.add_argument('atlas', type=str, help='filename for atlas image')
+    parser.add_argument('target', type=str, help='filename for target image')
+    parser.add_argument('scale', type=float, help='spatial scale of transformation smoothness (in same units as image headers)', dest='a') # note this variable will be stored as a in my namespace
+    parser.add_argument('sigmaM', type=float, help='std for image matching cost')
+    parser.add_argument('sigmaR', type=float, help='std for deformation cost')
+    
+    # optional arguments
+    parser.add_argument('--affine', type=str, help='text filename storing initial affine transform (account for differences in orientation, defaults to identity)')
+    parser.add_argument('--power', type=float, help='power of Laplacian in smoothing operator', dest=p)
+
+    
+    parser.add_argument('--niter', type=int, help='total number of iterations of gradient descent')
+    parser.add_argument('--naffine', type=int, help='number of iterations of affine only optimization before deformation')
+    parser.add_argument('--post_affine_reduce', type=float, help='factor to reduce affine (improves numerical stability)')    
+        
+        
+    
+    parser.add_argument('nMstep', type=int, help='number of M steps per E step when using missing data EM algorithm.  Default is to not use this approach')
+    parser.add_argument('nMstep_affine', type=int, help='number of M steps per E step when using missing data EM algorithm during affine only alignment.  Typically a smaller number works here. Default is to not use this approach.')
+    parser.add_argument('--sigmaA', type=float, help='std for artifact when using missing data EM algorithm, typically sigmaM*10')
+    
+    # a feature for working with allen atlas
+    parser.add_argument('--pad-allen', help='add a blank slice to the allen atlas to help with boundary conditions on interpolation', action='store_true')
+    
+    args = parser.parse_args()    
+    print(args)
+    
+    
+    
+    
+    ################################################################################
+    # parse output prefix
+    splitpath = os.path.split(args.prefix)
+    if not os.path.exists(splitpath[0]):
+        print('output prefix directory "{}" does not exist, creating it.'.format(splitpath[0]))
+        os.mkdir(splitpath[0])
+    
+    
+    ################################################################################
+    # Load images
+    # load them with nababel
+    fnames = [args.atlas,args.target]
+    img = [nib.load(fname) for fname in fnames]
+    # get info about domains
+    # we assume for this example that we have the same voxel size and same voxel spacing for atlas and target
+    if '.img' == args.atlas[-4:] and '.img' == args.target[-4:]:    
+        nxI = img[0].header['dim'][1:4]
+        dxI = img[0].header['pixdim'][1:4]
+        nxJ = img[1].header['dim'][1:4]
+        dxJ = img[1].header['pixdim'][1:4]    
+    else:
+        # I'm only working with analyze for now
+        raise ValueError('Only Analyze images supported for now')
+    xI = [np.arange(nxi)*dxi - np.mean(np.arange(nxi)*dxi) for nxi,dxi in zip(nxI,dxI)]
+    xJ = [np.arange(nxi)*dxi - np.mean(np.arange(nxi)*dxi) for nxi,dxi in zip(nxJ,dxJ)]
+    print('Loaded atlas image with size {} and spacing {}'.format(nxI,dxI))
+    print('Loaded target image with size {} and spacing {}'.format(nxJ,dxJ))
+    
+    # get the images, note they also include a fourth axis for time that I don't want
+    I = img[0].get_data()[:,:,:,0]
+    J = img[1].get_data()[:,:,:,0]
+
+    if args.pad_allen:
+        # I would like to pad one slice of the allen atlas so that it has zero boundary conditions
+        zeroslice = np.zeros((nxI[0],1,nxI[2]))
+        I = np.concatenate((I,zeroslice),axis=1)
+        nxI = img[0].header['dim'][1:4]
+        nxI[1] += 1
+        xI = [np.arange(nxi)*dxi - np.mean(np.arange(nxi)*dxi) for nxi,dxi in zip(nxI,dxI)]
+    
+    # display the images and write them out
+    # display the atlas
+    f = plt.figure()
+    vis.imshow_slices(I, x=xI, fig=f)
+    f.suptitle('Atlas I')
+    f.savefig(args.prefix + 'atlas.png')
+    plt.close(f)
+    # display the target
+    f = plt.figure()
+    vis.imshow_slices(J,x=xJ,fig=f)
+    f.suptitle('Target J')
+    f.savefig(args.prefix + 'target.png')
+    plt.close(f)
+    
+    
+    
+    ################################################################################
+    # parse initial affine file
+    if args.affine is not None:
+        print('reading affine from file')
+        with open(args.affine) as f:
+            A0 = np.array( [ [ float(a) for a in line.strip().split()] for line in f] )
+    else:
+        A0 = np.eye(4)
+    print('affine is {}.  Please check output images to see if it is appropriate.'.format(A0))
+    
+    X0,X1,X2 = np.meshgrid(xJ[0],xJ[1],xJ[2],indexing='ij')
+    X0tf = tf.constant(X0,dtype=dtype)
+    X1tf = tf.constant(X1,dtype=dtype)
+    X2tf = tf.constant(X2,dtype=dtype)
+    Itf = tf.constant(I,dtype=dtype)
+    B = np.linalg.inv(A0)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        Xs = B[0,0]*X0tf + B[0,1]*X1tf + B[0,2]*X2tf + B[0,3]
+        Ys = B[1,0]*X0tf + B[1,1]*X1tf + B[1,2]*X2tf + B[1,3]
+        Zs = B[2,0]*X0tf + B[2,1]*X1tf + B[2,2]*X2tf + B[2,3]
+        Id = interp3(xI[0], xI[1], xI[2], Itf, Xs, Ys, Zs)
+        Idnp = Id.eval()
+    f = plt.figure()
+    vis.imshow_slices(Idnp,x=xJ,fig=f)
+    f.suptitle('Initial affine transformation')
+    f.savefig(args.prefix + 'atlas-affine.png')
+    plt.close(f)
+    
+    
+
+    
+
+    ################################################################################
+    # put defaults in a dict for this command line interface
+    # the lddmm code has its own defaults
+    # but for this version I want to inclue artifacts and do affine
+    # and use parameters that work for partha's fluoro images
+    params = {'sigmaA':args.sigmaM*10,
+              'nMstep':5,
+              'nMstep_affine':1,
+              'naffine':50,
+              'A0':A0,
+              'xI':xI,
+              'xJ':xJ
+             }
+    # get a dictionary, but don't get the Nones
+    argsdict = {k:v for k,v in vars(args).items() if v is not None}
+    params.update()
+    
+    # now run lddmm   
+    out = lddmm.lddmm(I,J, # atlas and target images
+                  niter=50, # number of iterations of gradient descent
+                  eL=0.0, # step size for linear part of affine
+                  eT=0.0, # step size for translation part of affine
+                  eV=1e-1, # step size for deformation field update
+                  sigmaM=1e1, # noise in image (matching weight 1/2/sigmaM**2)
+                  sigmaR=2e0, # noise in deformation (regularization weight 1/2/sigmaR**2)
+                  p=2, # power of smoothing operator, 2 is typical
+                  a=2.0 # length scale of smoothing operator (mm)
+                 )
+    
+    # now write out the output
