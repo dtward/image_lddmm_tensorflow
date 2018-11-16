@@ -5,6 +5,7 @@ import vis
 import os
 import argparse
 import nibabel as nib
+from evtk.hl import imageToVTK  # for writing outputs
 
 dtype = tf.float32
 idtype = tf.int64
@@ -255,7 +256,7 @@ def lddmm(I,J,**kwargs):
     eT = params['eT']
     rigid = params['rigid']
     post_affine_reduce = params['post_affine_reduce']
-    print('initial affine transform {}'.format(params['A0']))
+    if verbose: print('Initial affine transform {}'.format(params['A0']))
     A0 = tf.convert_to_tensor(params['A0'], dtype=dtype)
     eV_ph = tf.placeholder(dtype=dtype)
     eL_ph = tf.placeholder(dtype=dtype)
@@ -330,7 +331,7 @@ def lddmm(I,J,**kwargs):
         
         
     
-    if verbose: print('built tensorflow variables')
+    if verbose: print('Built tensorflow variables')
     
     
     
@@ -581,11 +582,11 @@ def lddmm(I,J,**kwargs):
             # afterwards, we update both simultaneously, but we shrink the affine steps
             # because otherwise we tend to get oscillations
             if it < naffine:
-                if verbose: print('taking affine only step')
+                if verbose: print('Taking affine only step')
                 _, EM_, ER_, E_, Idnp, lambda1np, Anp = sess.run([step_A,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL, eT_ph:eT})
             else:
                 # note use smaller affine parameters
-                if verbose: print('taking affine and deformation step')
+                if verbose: print('Taking affine and deformation step')
                 _, EM_, ER_, E_, Idnp, lambda1np, Anp = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
             
             #print(Anp)
@@ -633,7 +634,7 @@ def lddmm(I,J,**kwargs):
             xlim = ax[1].get_xlim()
             ylim = ax[1].get_ylim()
             ax[1].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
-            ax[1].set_title('translation')
+            ax[1].set_title('Translation')
             # linear
             ax[2].cla()
             ax[2].plot(range(it+1),Aallnp[:,0:3])
@@ -642,7 +643,7 @@ def lddmm(I,J,**kwargs):
             xlim = ax[2].get_xlim()
             ylim = ax[2].get_ylim()
             ax[2].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
-            ax[2].set_title('linear')
+            ax[2].set_title('Linear')
             
             # force drawing now (otherwise python will wait until code has stopped running)
             f0.canvas.draw()
@@ -654,11 +655,19 @@ def lddmm(I,J,**kwargs):
             
         # output variables (get them inside the session)
         Anp,vt0np,vt1np,vt2np,phiinv0np,phiinv1np,phiinv2np,phi1tinv0np,phi1tinv1np,phi1tinv2np = sess.run([A,vt0,vt1,vt2,phiinv0,phiinv1,phiinv2,phi1tinv0,phi1tinv1,phi1tinv2])
+    # we will use a dictionary as the output
     output = {'A':Anp,
-             'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np,
-             'phiinv0':phiinv0np, 'phiinv1':phiinv1np, 'phiinv2':phiinv2np,
-             'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
+              'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np,
+              'phiinv0':phiinv0np, 'phiinv1':phiinv1np, 'phiinv2':phiinv2np,
+              'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
+              'f_kernel':f, # figure of smoothing kernel      
+              'f_deformed':f0, # figure for deformed atlas
+              'f_error':f1,
+              'f_energy':f2
              }
+    if nMstep > 0:
+        output['f_WM'] = fW
+        output['f_WA'] = fWA
     return output
 
 
@@ -687,6 +696,8 @@ if __name__ == '__main__':
     parser.add_argument('scale', type=float, help='spatial scale of transformation smoothness (in same units as image headers)', dest='a') # note this variable will be stored as a in my namespace
     parser.add_argument('sigmaM', type=float, help='std for image matching cost')
     parser.add_argument('sigmaR', type=float, help='std for deformation cost')
+    parser.add_argument('niter', type=int, help='number of iterations of gradient descent for deformation')
+    parser.add_argument('eV', type=float, help='gradient descent step size for deformation')
     
     # optional arguments
     parser.add_argument('--affine', type=str, help='text filename storing initial affine transform (account for differences in orientation, defaults to identity)')
@@ -694,17 +705,19 @@ if __name__ == '__main__':
 
     
     parser.add_argument('--niter', type=int, help='total number of iterations of gradient descent')
-    parser.add_argument('--naffine', type=int, help='number of iterations of affine only optimization before deformation')
+    parser.add_argument('--naffine', type=int, help='number of iterations of affine only optimization before deformation')    
     parser.add_argument('--post_affine_reduce', type=float, help='factor to reduce affine (improves numerical stability)')    
-        
-        
+    parser.add_argument('--eL', type=float, help='gradient descent step size for linear part of affine')
+    parser.add_argument('--eT', type=float, help='gradient descent step size for translation part of affine')
     
-    parser.add_argument('nMstep', type=int, help='number of M steps per E step when using missing data EM algorithm.  Default is to not use this approach')
-    parser.add_argument('nMstep_affine', type=int, help='number of M steps per E step when using missing data EM algorithm during affine only alignment.  Typically a smaller number works here. Default is to not use this approach.')
+        
+    # missing data
+    parser.add_argument('--nMstep', type=int, help='number of M steps per E step when using missing data EM algorithm.  Default is to not use this approach')
+    parser.add_argument('--nMstep_affine', type=int, help='number of M steps per E step when using missing data EM algorithm during affine only alignment.  Typically a smaller number works here. Default is to not use this approach.')
     parser.add_argument('--sigmaA', type=float, help='std for artifact when using missing data EM algorithm, typically sigmaM*10')
     
     # a feature for working with allen atlas
-    parser.add_argument('--pad-allen', help='add a blank slice to the allen atlas to help with boundary conditions on interpolation', action='store_true')
+    parser.add_argument('--pad_allen', help='add a blank slice to the allen atlas to help with boundary conditions on interpolation', action='store_true')
     
     args = parser.parse_args()    
     print(args)
@@ -802,32 +815,36 @@ if __name__ == '__main__':
     
 
     ################################################################################
-    # put defaults in a dict for this command line interface
-    # the lddmm code has its own defaults
-    # but for this version I want to inclue artifacts and do affine
-    # and use parameters that work for partha's fluoro images
-    params = {'sigmaA':args.sigmaM*10,
-              'nMstep':5,
-              'nMstep_affine':1,
-              'naffine':50,
+    # put the defaults in this dict if they needed to be computed in this file
+    params = {'sigmaA':args.sigmaM*10, # std for artifacts
               'A0':A0,
               'xI':xI,
               'xJ':xJ
              }
-    # get a dictionary, but don't get the Nones
+    # get a dictionary, but leave out any Nones
     argsdict = {k:v for k,v in vars(args).items() if v is not None}
-    params.update()
+    # update the parameters with my arguments
+    params.update(argsdict)
     
     # now run lddmm   
     out = lddmm.lddmm(I,J, # atlas and target images
-                  niter=50, # number of iterations of gradient descent
-                  eL=0.0, # step size for linear part of affine
-                  eT=0.0, # step size for translation part of affine
-                  eV=1e-1, # step size for deformation field update
-                  sigmaM=1e1, # noise in image (matching weight 1/2/sigmaM**2)
-                  sigmaR=2e0, # noise in deformation (regularization weight 1/2/sigmaR**2)
-                  p=2, # power of smoothing operator, 2 is typical
-                  a=2.0 # length scale of smoothing operator (mm)
+                  **params # all other parameters
                  )
     
+    # write out the figures
+    out['f_kernel'].savefig(args.prefix + 'kernel.png')
+    out['f_deformed'].savefig(args.prefix + 'atlas-deformed.png')
+    out['f_error'].savefig(args.prefix + 'error.png')
+    out['f_energy'].savefig(args.prefix + 'energy.png')
+    if args.nMaffine > 0:
+        out['f_WM'].savefig(args.prefix + 'atlas-weight.png')
+        out['f_WA'].savefig(args.prefix + 'artifact-weight.png')
+        
     # now write out the output
+    # following exapmle here: https://www.vtk.org/Wiki/VTK/Writing_VTK_files_using_python
+    phi = np.concatenate([out['phi0'][None], out['phi1'][None], out['phi2'][None]])
+    imageToVTK(args.prefix + "phi", cellData = {"phi" : phi} )
+    phiinv = np.concatenate([out['phiinv0'][None], out['phiinv1'][None], out['phiinv2'][None]])
+    imageToVTK(args.prefix + "phiinv", cellData = {"phiinv" : phi} )
+
+    
