@@ -5,7 +5,7 @@ import vis
 import os
 import argparse
 import nibabel as nib
-from evtk.hl import imageToVTK  # for writing outputs
+from pyevtk.hl import imageToVTK  # for writing outputs
 
 dtype = tf.float32
 idtype = tf.int64
