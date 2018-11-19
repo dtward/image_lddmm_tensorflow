@@ -31,8 +31,6 @@ ET=1e-3 # stepsize for translation
 EL=2e-4 # step size for linear
 POSTAFFINEREDUCE=0.1 # reduce step size for affine parameters after naffine
 
-NITER=10 # test outputs
-
 # run the code
 # note -u means outputs will be written in real time and not buffered
 python -u -m lddmm $PREFIX $ATLAS_IMAGE_FNAME $TARGET_IMAGE_FNAME $SCALE $SIGMAM $SIGMAR $NITER $EV --eL $EL --eT $ET --naffine $NAFFINE --post_affine_reduce $POSTAFFINEREDUCE --affine $AFFINE --nT $NT --sigmaA $SIGMAA --nMstep $NMSTEP --nMstep_affine $NMSTEPAFFINE --post_affine_reduce $POSTAFFINEREDUCE --pad_allen > ${PREFIX}stdout.txt
