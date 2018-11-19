@@ -851,7 +851,7 @@ if __name__ == '__main__':
     out['f_deformed'].savefig(args.prefix + 'atlas-deformed.png')
     out['f_error'].savefig(args.prefix + 'error.png')
     out['f_energy'].savefig(args.prefix + 'energy.png')
-    if args.nMaffine > 0:
+    if args.nMstep > 0:
         out['f_WM'].savefig(args.prefix + 'atlas-weight.png')
         out['f_WA'].savefig(args.prefix + 'artifact-weight.png')
         
