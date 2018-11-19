@@ -30,7 +30,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
     
     vmin = np.min(I)
     vmax = np.max(I)
-    vmin,vmax = np.quantile(I,(0.01,0.99))
+    vmin,vmax = np.quantile(I,(0.001,0.999))
     
     slices0 = np.linspace(0,I.shape[0],n+2,dtype=int)[1:-1]
     slices1 = np.linspace(0,I.shape[1],n+2,dtype=int)[1:-1]

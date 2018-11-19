@@ -5,7 +5,7 @@ import vis
 import os
 import argparse
 import nibabel as nib
-from pyevtk.hl import imageToVTK  # for writing outputs
+#from pyevtk.hl import imageToVTK  # for writing outputs
 
 dtype = tf.float32
 idtype = tf.int64
@@ -654,12 +654,24 @@ def lddmm(I,J,**kwargs):
             print('Finished iteration {}, energy {:3e} (match {:3e}, reg {:3e})'.format(it, E_, EM_, ER_))
             
         # output variables (get them inside the session)
-        Anp,vt0np,vt1np,vt2np,phiinv0np,phiinv1np,phiinv2np,phi1tinv0np,phi1tinv1np,phi1tinv2np = sess.run([A,vt0,vt1,vt2,phiinv0,phiinv1,phiinv2,phi1tinv0,phi1tinv1,phi1tinv2])
+        Anp,\
+        vt0np,vt1np,vt2np,\
+        phiinv0np,phiinv1np,phiinv2np,\
+        phi1tinv0np,phi1tinv1np,phi1tinv2np,\
+        phiinvB0np,phiinvB1np,phiinvB2np,\
+        Aphi1tinv0np,Aphi1tinv1np,Aphi1tinv2np= sess.run([A,\
+                                                     vt0,vt1,vt2,\
+                                                     phiinv0,phiinv1,phiinv2,\
+                                                     phi1tinv0,phi1tinv1,phi1tinv2,\
+                                                     phiinvB0,phiinvB1,phiinvB2,\
+                                                     Aphi1tinv0,Aphi1tinv1,Aphi1tinv2])
     # we will use a dictionary as the output
     output = {'A':Anp,
               'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np,
               'phiinv0':phiinv0np, 'phiinv1':phiinv1np, 'phiinv2':phiinv2np,
               'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
+              'phiinvAinv0':phiinvB0np,'phiinvAinv1':phiinvB1np,'phiinvAinv2':phiinvB2np,
+              'Aphi0':Aphi1tinv0np,'Aphi1':Aphi1tinv1np,'Aphi2':Aphi1tinv2np,
               'f_kernel':f, # figure of smoothing kernel      
               'f_deformed':f0, # figure for deformed atlas
               'f_error':f1,
@@ -681,9 +693,10 @@ if __name__ == '__main__':
     atlas: filename of atlas image
     target: filename of target image
     scale: length scale of diffeomorphism
+    sigmaM: noise scale for image matching (1/2/sigmaM^2 is fidelity weight)
+    sigmaR: noise scale for deformation (1/2/sigmaR^2 is regularization weight)
     
-    Optional arguments are:
-    affine: filename that stores initial transformation (4x4 matrix)
+    There are many optional argument describing different parameters of hte algorithm.  
     '''
     
     # create parser
@@ -693,7 +706,7 @@ if __name__ == '__main__':
     parser.add_argument('prefix', type=str, help='string prefix for all outputs (can include a directory, directories should have trailing slashes)')
     parser.add_argument('atlas', type=str, help='filename for atlas image')
     parser.add_argument('target', type=str, help='filename for target image')
-    parser.add_argument('scale', type=float, help='spatial scale of transformation smoothness (in same units as image headers)', dest='a') # note this variable will be stored as a in my namespace
+    parser.add_argument('a', type=float, help='spatial scale of transformation smoothness (in same units as image headers)', metavar='scale') # note this variable will be stored as a in my namespace
     parser.add_argument('sigmaM', type=float, help='std for image matching cost')
     parser.add_argument('sigmaR', type=float, help='std for deformation cost')
     parser.add_argument('niter', type=int, help='number of iterations of gradient descent for deformation')
@@ -701,7 +714,7 @@ if __name__ == '__main__':
     
     # optional arguments
     parser.add_argument('--affine', type=str, help='text filename storing initial affine transform (account for differences in orientation, defaults to identity)')
-    parser.add_argument('--power', type=float, help='power of Laplacian in smoothing operator', dest=p)
+    parser.add_argument('--p', type=float, help='power of Laplacian in smoothing operator', metavar='power') # stored as p in my namespace
 
     
     parser.add_argument('--niter', type=int, help='total number of iterations of gradient descent')
@@ -709,6 +722,8 @@ if __name__ == '__main__':
     parser.add_argument('--post_affine_reduce', type=float, help='factor to reduce affine (improves numerical stability)')    
     parser.add_argument('--eL', type=float, help='gradient descent step size for linear part of affine')
     parser.add_argument('--eT', type=float, help='gradient descent step size for translation part of affine')
+    
+    parser.add_argument('--nT', type=int, help='number of timesteps to integrate flow')
     
         
     # missing data
@@ -827,9 +842,9 @@ if __name__ == '__main__':
     params.update(argsdict)
     
     # now run lddmm   
-    out = lddmm.lddmm(I,J, # atlas and target images
-                  **params # all other parameters
-                 )
+    out = lddmm(I,J, # atlas and target images                  
+                **params # all other parameters
+               )
     
     # write out the figures
     out['f_kernel'].savefig(args.prefix + 'kernel.png')
@@ -840,11 +855,49 @@ if __name__ == '__main__':
         out['f_WM'].savefig(args.prefix + 'atlas-weight.png')
         out['f_WA'].savefig(args.prefix + 'artifact-weight.png')
         
+    '''
     # now write out the output
     # following exapmle here: https://www.vtk.org/Wiki/VTK/Writing_VTK_files_using_python
     phi = np.concatenate([out['phi0'][None], out['phi1'][None], out['phi2'][None]])
     imageToVTK(args.prefix + "phi", cellData = {"phi" : phi} )
     phiinv = np.concatenate([out['phiinv0'][None], out['phiinv1'][None], out['phiinv2'][None]])
     imageToVTK(args.prefix + "phiinv", cellData = {"phiinv" : phi} )
-
+    # save the voxel locations
+    XI = np.meshgrid(*xI,indexing='ij')    
+    imageToVTK(args.prefix + "XI", cellData = {"XI" : XI} )
+    XJ = np.meshgrid(*xJ,indexing='ij')    
+    imageToVTK(args.prefix + "XJ", cellData = {"XJ" : XJ} )
+    Aphi = np.concatenate([out['Aphi0'][None], out['Aphi1'][None], out['Aphi2'][None]])
+    imageToVTK(args.prefix + "Aphi", cellData = {"Aphi" : Aphi} )
+    phiinvAinv = np.concatenate([out['phiinvAinv0'][None], out['phiinvAinv1'][None], out['phiinvAinv2'][None]])
+    imageToVTK(args.prefix + "phiinvAinv", cellData = {"phiinvAinv" : phiinvAinv} )
+    '''
+    # write output in numpy format
+    phi = np.concatenate([out['phi0'][None], out['phi1'][None], out['phi2'][None]])
+    np.save(args.prefix + "phi", phi)
+    phiinv = np.concatenate([out['phiinv0'][None], out['phiinv1'][None], out['phiinv2'][None]])
+    np.save(args.prefix + "phiinv", phiinv)
+    XI = np.meshgrid(*xI,indexing='ij')
+    np.save(args.prefix + "XI", XI)
+    XJ = np.meshgrid(*xJ,indexing='ij')
+    np.save(args.prefix + "XJ", XJ)
+    Aphi = np.concatenate([out['Aphi0'][None], out['Aphi1'][None], out['Aphi2'][None]])
+    np.save(args.prefix + "Aphi", Aphi)
+    phiinvAinv = np.concatenate([out['phiinvAinv0'][None], out['phiinvAinv1'][None], out['phiinvAinv2'][None]])
+    np.save(args.prefix + "phiinvAinv", phiinvAinv)
     
+    # And lets do A and A inv as text files
+    A = out['A']
+    with open(args.prefix + 'A.txt','wt') as f:
+        for r in range(4):
+            for c in range(4):
+                f.write(str(A[r,c])+' ')
+            f.write('\n')
+    B = np.linalg.inv(A)
+    with open(args.prefix + 'Ainv.txt','wt') as f:
+        for r in range(4):
+            for c in range(4):
+                f.write(str(B[r,c])+' ')
+            f.write('\n')
+            
+    # thats it!
