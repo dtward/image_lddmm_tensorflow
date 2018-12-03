@@ -19,11 +19,43 @@ Below shows an illustration of deforming an atlas human MRI to match a target hu
 
 
 ## Examples
-Please see Examples.ipynb to see application to human brain and mouse brain.  More examples will be forthcoming.
+Please see Example*.ipynb to see various examples.  Ideally you will find one that is similar to your desired application, and you can run it on your data with minimal changes.
 
+## Installation
+
+This package requires tensorflow running in python 3, as well as several other pythonpackages.  These packages are numpy for working with arrays, matplotlib for generating figures, nibabel for reading neuroimages, ipython and jupyter for running interactive notebooks.
+
+Below is an example of how to install this package in unix, python 3.4, 3.5, or 3.6, and virtualenv.  Instructions for installing these can be found on https://www.tensorflow.org/install/.  You will also need git.
+
+
+```
+# set up virtual environment
+ENVLOCATION=~/lddmm_env
+./virtualenv $ENVLOCATION
+
+# activate virtual environment
+source $LOCATION/bin/activate
+
+# install requirements
+pip3 install ipython jupyter tensorflow numpy matplotlib nibabel
+
+# clone git repo
+INSTALLLOCATION=~
+cd $INSTALLLOCATION
+git clone https://github.com/dtward/image_lddmm_tensorflow.git
+
+# start jupyter notebook
+jupyter-notebook
+
+# jupyter will start in your web browser
+# navigate to one of the example files, and click on kernel->restart & run all
+
+```
+
+Other methods (including GPU) and troubleshooting for installing tensorflow can be found here https://www.tensorflow.org/install/
 
 ## To do
 1. (coding) Figure out details of running this code on GPU
 1. (application) Incorporate more example model organisms, and choose optimal parameters fo reach
-1. (algorithms) Incorporate moddern techniques for working with artifacts, missing data, and differences in image contrast
+1. (algorithms) Incorporate moddern techniques for working with artifacts, missing data, and differences in image contrast (partially done)
 
