@@ -25,7 +25,7 @@ Please see Example*.ipynb to see various examples.  Ideally you will find one th
 
 This package requires tensorflow running in python 3, as well as several other pythonpackages.  These packages are numpy for working with arrays, matplotlib for generating figures, nibabel for reading neuroimages, ipython and jupyter for running interactive notebooks.
 
-Below is an example of how to install this package in unix, python 3.4, 3.5, or 3.6, and virtualenv.  Instructions for installing these can be found on https://www.tensorflow.org/install/.  You will also need git.
+Below is an example of how to install this package in unix.  You will need python 3.4, 3.5, or 3.6, and virtualenv.  Instructions for installing these can be found on https://www.tensorflow.org/install/.  You will also need git.
 
 
 ```
