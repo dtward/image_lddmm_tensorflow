@@ -185,7 +185,8 @@ def lddmm(I,J,**kwargs):
     params['naffine'] = 0 # do affine only for this number
     params['post_affine_reduce'] = 0.1 # reduce affine step sizes by this much once nonrigid starts
     params['nMstep'] = 0 # number of iterations of M step each E step in EM algorithm, 0 means don't use this feature
-    params['nMstep_affine'] = 0 # number of iterations of M step during affine
+    params['nMstep_affine'] = 0 # number of iterations of M step during affine    
+    params['CA0'] = np.mean(J)
     
     # initial guess
     params['A0'] = np.eye(4)
@@ -272,7 +273,8 @@ def lddmm(I,J,**kwargs):
     ################################################################################
     # some initializations
     # images
-    CA = np.mean(J) # constant value for "artifact image"
+    #CA = np.mean(J) # constant value for "artifact image", I should probably have a better initialzation
+    CA = params['CA0']
     I = tf.convert_to_tensor(I,dtype=dtype)
     J = tf.convert_to_tensor(J,dtype=dtype)
     # build kernels
@@ -597,11 +599,11 @@ def lddmm(I,J,**kwargs):
                 _, WMnp, WAnp = sess.run([step_W,WMnew,WAnew])
                 fW.clf()
                 vis.imshow_slices(WMnp, x=xJ, fig=fW)
-                fW.suptitle('Weight')
+                fW.suptitle('Image Weight')
                 fW.canvas.draw()
                 fWA.clf()
                 vis.imshow_slices(WAnp, x=xJ, fig=fWA)
-                fWA.suptitle('Weight')
+                fWA.suptitle('Artifact Weight')
                 fWA.canvas.draw()
                 
             # draw some pictures    
