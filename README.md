@@ -1,6 +1,7 @@
 # image_lddmm_tensorflow
 ## Introduction
-Image mapping using the LDDMM algorithm, implemented in tensorflow.  Deformable registration between well characterized atlas images and observed target images allows for labelling of anatomical parcellations for interpretting data, and quantification of atrophy, growth, or shape change.
+Image mapping using the LDDMM algorithm, implemented in tensorflow.  Deformable registration between well characterized atlas images and observed target images allows for labelling of anatomical parcellations to interprete data, and quantification of atrophy, growth, or shape change.  Multi modality images and missing data are handled using DR IT MD, Deformable registration with intensity transform and missing data, described in https://doi.org/10.1101/494005.
+
 
 This package contains functions to run deformable image registration in python, using tensorflow to handle high performance computing issues.
 
@@ -55,7 +56,7 @@ jupyter-notebook
 Other methods (including GPU) and troubleshooting for installing tensorflow can be found here https://www.tensorflow.org/install/
 
 ## To do
-1. (coding) Figure out details of running this code on GPU
-1. (application) Incorporate more example model organisms, and choose optimal parameters fo reach
-1. (algorithms) Incorporate moddern techniques for working with artifacts, missing data, and differences in image contrast (partially done)
+1. (coding) Optimize for GPU.
+1. (application) Incorporate more example model organisms, and choose optimal parameters fo reach.
+
 

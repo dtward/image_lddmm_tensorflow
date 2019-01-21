@@ -668,6 +668,8 @@ def lddmm(I,J,**kwargs):
                                                      phiinvB0,phiinvB1,phiinvB2,\
                                                      Aphi1tinv0,Aphi1tinv1,Aphi1tinv2])
     # we will use a dictionary as the output
+    # TODO output the deformed images
+    # TODO output weights
     output = {'A':Anp,
               'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np,
               'phiinv0':phiinv0np, 'phiinv1':phiinv1np, 'phiinv2':phiinv2np,
