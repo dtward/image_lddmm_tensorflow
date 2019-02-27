@@ -114,8 +114,6 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     I111 = tf.reshape(I111_flat, nxout)
 
     # combine them!
-    #if method == 1: # linear
-    # this does not quite work for integer valued imgae
     p000 = tf.cast((1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p), dtype=image_dtype)
     p001 = tf.cast((1.0-phi0_p)*(1.0-phi1_p)*(    phi2_p), dtype=image_dtype)
     p010 = tf.cast((1.0-phi0_p)*(    phi1_p)*(1.0-phi2_p), dtype=image_dtype)
@@ -132,23 +130,7 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
         + I101*p101\
         + I110*p110\
         + I111*p111
-    #elif method == 0: # nearest
-    #    # we need to find the maximum of those 8 factors
-    #    stacked_p = tf.stack([(1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
-    #        , I001*(1.0-phi0_p)*(1.0-phi1_p)*(    phi2_p)\
-    #        , I010*(1.0-phi0_p)*(    phi1_p)*(1.0-phi2_p)\
-    #        , I011*(1.0-phi0_p)*(    phi1_p)*(    phi2_p)\
-    #        , I100*(    phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
-    #        , I101*(    phi0_p)*(1.0-phi1_p)*(    phi2_p)\
-    #        , I110*(    phi0_p)*(    phi1_p)*(1.0-phi2_p)\
-    #        , I111*(    phi0_p)*(    phi1_p)*(    phi2_p)],axis=0) # note default axis is 0
-    #    stacked_I = tf.stack([I000, I001, I010, I011, I100, I101, I110, I111],axis=-1)
-    #    maxinds = tf.argmax(stacked_p,axis=0)
-    #    #Il = stacked_I[...,maxinds]
-    #    #Il = tf.to_float(maxinds)
-    #    #Il = stacked_I[...,0]
-    #    Il = tf.batch_gather(stacked_I,tf.cast(maxinds, dtype=tf.int32))
-        
+    
     return Il
 
 
@@ -224,7 +206,8 @@ def lddmm(I,J,**kwargs):
     params['post_affine_reduce'] = 0.1 # reduce affine step sizes by this much once nonrigid starts
     params['nMstep'] = 0 # number of iterations of M step each E step in EM algorithm, 0 means don't use this feature
     params['nMstep_affine'] = 0 # number of iterations of M step during affine    
-    params['CA0'] = np.mean(J)
+    params['CA0'] = np.mean(J) # initial guess for value of artifact
+    params['W'] = 1.0 # a fixed weight for each pixel in J, or just a number
     
     # initial guess
     params['A0'] = np.eye(4)
@@ -313,8 +296,10 @@ def lddmm(I,J,**kwargs):
     # images
     #CA = np.mean(J) # constant value for "artifact image", I should probably have a better initialzation
     CA = params['CA0']
-    I = tf.convert_to_tensor(I,dtype=dtype)
-    J = tf.convert_to_tensor(J,dtype=dtype)
+    I = tf.convert_to_tensor(I, dtype=dtype)
+    J = tf.convert_to_tensor(J, dtype=dtype)
+    W = tf.convert_to_tensor(params['W'], dtype=dtype)
+    
     # build kernels
     f0I = np.arange(nxI[0])/dxI[0]/nxI[0]
     f1I = np.arange(nxI[1])/dxI[1]/nxI[1]
@@ -428,15 +413,15 @@ def lddmm(I,J,**kwargs):
     
     ################################################################################
     # here I will include contrast transform (just linear for now)
-    WMsum = tf.reduce_sum(WM)
-    Ibar = tf.reduce_sum(AphiI*WM)/WMsum
+    WMsum = tf.reduce_sum(WM*W)
+    Ibar = tf.reduce_sum(AphiI*WM*W)/WMsum
     I0 = AphiI-Ibar
-    Jbar = tf.reduce_sum(J*WM)/WMsum
+    Jbar = tf.reduce_sum(J*WM*W)/WMsum
     J0 = J-Jbar
-    VarI = tf.reduce_sum(I0**2*WM)/WMsum
-    CovIJ = tf.reduce_sum(I0*J0*WM)/WMsum
+    VarI = tf.reduce_sum(I0**2*WM*W)/WMsum
+    CovIJ = tf.reduce_sum(I0*J0*WM*W)/WMsum
     fAphiI = (AphiI - Ibar) * CovIJ / VarI + Jbar
-    CA = tf.reduce_sum(J*WA)/(tf.reduce_sum(WA)+1.0e-6) # if WA is all zeros, this is gonna be a problem
+    CA = tf.reduce_sum(J*WA*W)/(tf.reduce_sum(WA*W)+1.0e-6) # if WA is all zeros, this is gonna be a problem
     
     
     ################################################################################
@@ -457,9 +442,9 @@ def lddmm(I,J,**kwargs):
         ER = tf.convert_to_tensor(0.0,dtype=tf.float64)
     ER *= dt*dxI[0]*dxI[1]*dxI[2]/sigmaR2/2.0
     # typically I would also divide by nx, but since I'm using reduce mean instead of reduce sum when summing over space, I do not
-    EM = tf.reduce_sum( tf.cast( tf.pow(fAphiI - J, 2)*WM, dtype=tf.float64) )/sigmaM2*dxI[0]*dxI[1]*dxI[2]/2.0
+    EM = tf.reduce_sum( tf.cast( tf.pow(fAphiI - J, 2)*WM*W, dtype=tf.float64) )/sigmaM2*dxI[0]*dxI[1]*dxI[2]/2.0
     # artifact
-    EA = tf.reduce_sum( tf.cast( tf.pow(CA - J, 2)*WA, dtype=tf.float64) )/sigmaM2*dxI[0]*dxI[1]*dxI[2]/2.0
+    EA = tf.reduce_sum( tf.cast( tf.pow(CA - J, 2)*WA*W, dtype=tf.float64) )/sigmaA2*dxI[0]*dxI[1]*dxI[2]/2.0
     # let's just use these two for now
     E = EM + ER
     
@@ -468,7 +453,7 @@ def lddmm(I,J,**kwargs):
     # now we compute the gradient with respect to affine transform parameters
     # this is for right perturbations, which I think I like now
     # i.e. A \mapsto A expm( e dA)
-    lambda1 = -WM*(fAphiI - J)/sigmaM2
+    lambda1 = -WM*W*(fAphiI - J)/sigmaM2
     fAphiI_0, fAphiI_1, fAphiI_2 = grad3(fAphiI, dxJ)
     gradAcol = []
     for r in range(3):
