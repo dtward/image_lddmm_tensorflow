@@ -9,7 +9,7 @@ import nibabel as nib
  
 dtype = tf.float32
 idtype = tf.int64
-def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,dtype=dtype):
+def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     ''' 
     Linear interpolation
     Interpolate a 3D tensorflow image I
@@ -24,7 +24,7 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,dtype=dtype):
     if method != 0 and method != 1:
         raise ValueError('method must be 0 (nearest neighbor) or 1 (trilinear)')
         
-    I = tf.convert_to_tensor(I, dtype=dtype)
+    I = tf.convert_to_tensor(I, dtype=image_dtype)
     phi0 = tf.convert_to_tensor(phi0, dtype=dtype)
     phi1 = tf.convert_to_tensor(phi1, dtype=dtype)
     phi2 = tf.convert_to_tensor(phi2, dtype=dtype)
@@ -115,14 +115,23 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,dtype=dtype):
 
     # combine them!
     #if method == 1: # linear
-    Il = I000*(1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
-        + I001*(1.0-phi0_p)*(1.0-phi1_p)*(    phi2_p)\
-        + I010*(1.0-phi0_p)*(    phi1_p)*(1.0-phi2_p)\
-        + I011*(1.0-phi0_p)*(    phi1_p)*(    phi2_p)\
-        + I100*(    phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
-        + I101*(    phi0_p)*(1.0-phi1_p)*(    phi2_p)\
-        + I110*(    phi0_p)*(    phi1_p)*(1.0-phi2_p)\
-        + I111*(    phi0_p)*(    phi1_p)*(    phi2_p)
+    # this does not quite work for integer valued imgae
+    p000 = tf.cast((1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p), dtype=image_dtype)
+    p001 = tf.cast((1.0-phi0_p)*(1.0-phi1_p)*(    phi2_p), dtype=image_dtype)
+    p010 = tf.cast((1.0-phi0_p)*(    phi1_p)*(1.0-phi2_p), dtype=image_dtype)
+    p011 = tf.cast((1.0-phi0_p)*(    phi1_p)*(    phi2_p), dtype=image_dtype)
+    p100 = tf.cast((    phi0_p)*(1.0-phi1_p)*(1.0-phi2_p), dtype=image_dtype)
+    p101 = tf.cast((    phi0_p)*(1.0-phi1_p)*(    phi2_p), dtype=image_dtype)
+    p110 = tf.cast((    phi0_p)*(    phi1_p)*(1.0-phi2_p), dtype=image_dtype)
+    p111 = tf.cast((    phi0_p)*(    phi1_p)*(    phi2_p), dtype=image_dtype)
+    Il = I000*p000\
+        + I001*p001\
+        + I010*p010\
+        + I011*p011\
+        + I100*p100\
+        + I101*p101\
+        + I110*p110\
+        + I111*p111
     #elif method == 0: # nearest
     #    # we need to find the maximum of those 8 factors
     #    stacked_p = tf.stack([(1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
