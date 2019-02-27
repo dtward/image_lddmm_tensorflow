@@ -6,10 +6,10 @@ import os
 import argparse
 import nibabel as nib
 #from pyevtk.hl import imageToVTK  # for writing outputs
-
+ 
 dtype = tf.float32
 idtype = tf.int64
-def interp3(x0,x1,x2,I,phi0,phi1,phi2):
+def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,dtype=dtype):
     ''' 
     Linear interpolation
     Interpolate a 3D tensorflow image I
@@ -17,7 +17,13 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2):
     at the points phi0, phi1, phi2 (3d arrays)
     To do: think about how to apply 0 boundary conditions (rather than nearest)
     The simplest way is just to pad the images with 0 by one voxel on all sides
+    
+    Note optional method, 0 for nearest neighbor, and 1 for trilinear (default)
+    Note optional argument for dtype, you may want to set it to idtype when doing nearest
     '''
+    if method != 0 and method != 1:
+        raise ValueError('method must be 0 (nearest neighbor) or 1 (trilinear)')
+        
     I = tf.convert_to_tensor(I, dtype=dtype)
     phi0 = tf.convert_to_tensor(phi0, dtype=dtype)
     phi1 = tf.convert_to_tensor(phi1, dtype=dtype)
@@ -33,6 +39,11 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2):
     phi0_index = (phi0 - x0[0])/dx[0]
     phi1_index = (phi1 - x1[0])/dx[1]
     phi2_index = (phi2 - x2[0])/dx[2]
+    if method == 0: # simple hack for nearest neighbor
+        phi0_index = tf.round(phi0_index)
+        phi1_index = tf.round(phi1_index)
+        phi2_index = tf.round(phi2_index)
+        
     # take the floor to get integers
     phi0_index_floor = tf.floor(phi0_index)
     phi1_index_floor = tf.floor(phi1_index)
@@ -103,6 +114,7 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2):
     I111 = tf.reshape(I111_flat, nxout)
 
     # combine them!
+    #if method == 1: # linear
     Il = I000*(1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
         + I001*(1.0-phi0_p)*(1.0-phi1_p)*(    phi2_p)\
         + I010*(1.0-phi0_p)*(    phi1_p)*(1.0-phi2_p)\
@@ -111,6 +123,23 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2):
         + I101*(    phi0_p)*(1.0-phi1_p)*(    phi2_p)\
         + I110*(    phi0_p)*(    phi1_p)*(1.0-phi2_p)\
         + I111*(    phi0_p)*(    phi1_p)*(    phi2_p)
+    #elif method == 0: # nearest
+    #    # we need to find the maximum of those 8 factors
+    #    stacked_p = tf.stack([(1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
+    #        , I001*(1.0-phi0_p)*(1.0-phi1_p)*(    phi2_p)\
+    #        , I010*(1.0-phi0_p)*(    phi1_p)*(1.0-phi2_p)\
+    #        , I011*(1.0-phi0_p)*(    phi1_p)*(    phi2_p)\
+    #        , I100*(    phi0_p)*(1.0-phi1_p)*(1.0-phi2_p)\
+    #        , I101*(    phi0_p)*(1.0-phi1_p)*(    phi2_p)\
+    #        , I110*(    phi0_p)*(    phi1_p)*(1.0-phi2_p)\
+    #        , I111*(    phi0_p)*(    phi1_p)*(    phi2_p)],axis=0) # note default axis is 0
+    #    stacked_I = tf.stack([I000, I001, I010, I011, I100, I101, I110, I111],axis=-1)
+    #    maxinds = tf.argmax(stacked_p,axis=0)
+    #    #Il = stacked_I[...,maxinds]
+    #    #Il = tf.to_float(maxinds)
+    #    #Il = stacked_I[...,0]
+    #    Il = tf.batch_gather(stacked_I,tf.cast(maxinds, dtype=tf.int32))
+        
     return Il
 
 

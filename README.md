@@ -16,8 +16,6 @@ Below shows an illustration of deforming an atlas human MRI to match a target hu
 
 
 
-
-
 ## Examples
 Please see Examples.ipynb to see application to human brain and mouse brain.  More examples will be forthcoming.
 
