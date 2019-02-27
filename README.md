@@ -17,8 +17,6 @@ Below shows an illustration of deforming an atlas human MRI to match a target hu
 
 
 
-
-
 ## Examples
 Please see Example*.ipynb to see various examples.  Ideally you will find one that is similar to your desired application, and you can run it on your data with minimal changes.
 
