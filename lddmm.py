@@ -699,7 +699,7 @@ def lddmm(I,J,**kwargs):
               'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
               'phiinvAinv0':phiinvB0np,'phiinvAinv1':phiinvB1np,'phiinvAinv2':phiinvB2np,
               'Aphi0':Aphi1tinv0np,'Aphi1':Aphi1tinv1np,'Aphi2':Aphi1tinv2np,
-              'AphiI':,Idnp,
+              'AphiI':Idnp,
               'f_kernel':f, # figure of smoothing kernel      
               'f_deformed':f0, # figure for deformed atlas
               'f_error':f1,
