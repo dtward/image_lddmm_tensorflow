@@ -684,7 +684,7 @@ def lddmm(I,J,**kwargs):
         phiinv0np,phiinv1np,phiinv2np,\
         phi1tinv0np,phi1tinv1np,phi1tinv2np,\
         phiinvB0np,phiinvB1np,phiinvB2np,\
-        Aphi1tinv0np,Aphi1tinv1np,Aphi1tinv2np= sess.run([A,\
+        Aphi1tinv0np,Aphi1tinv1np,Aphi1tinv2np = sess.run([A,\
                                                      vt0,vt1,vt2,\
                                                      phiinv0,phiinv1,phiinv2,\
                                                      phi1tinv0,phi1tinv1,phi1tinv2,\
@@ -699,6 +699,7 @@ def lddmm(I,J,**kwargs):
               'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
               'phiinvAinv0':phiinvB0np,'phiinvAinv1':phiinvB1np,'phiinvAinv2':phiinvB2np,
               'Aphi0':Aphi1tinv0np,'Aphi1':Aphi1tinv1np,'Aphi2':Aphi1tinv2np,
+              'AphiI':,Idnp,
               'f_kernel':f, # figure of smoothing kernel      
               'f_deformed':f0, # figure for deformed atlas
               'f_error':f1,
