@@ -616,7 +616,7 @@ def lddmm(I,J,**kwargs):
                 if verbose: print('Taking affine and deformation step')
                 _, EM_, ER_, E_, \
                 Idnp, lambda1np, Anp, \
-                vt0np, vt1np, vt2np = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
+                vt0np, vt1np, vt2np = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew,vt0,vt1,vt2], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
             
             #print(Anp)
             if (nMstep>0
