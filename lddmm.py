@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.linalg import expm,logm
 import tensorflow as tf
 import vis
 import os
@@ -591,9 +592,10 @@ def lddmm(I,J,**kwargs):
     ERall = []
     Eall = []
     Aall = []
+    vmaxall = []
     f0 = plt.figure()
     f1 = plt.figure()    
-    f2,ax = plt.subplots(1,3)
+    f2,ax = plt.subplots(2,2) # this figure is for plotting energy and parameters
     if nMstep > 0: # weights
         fW = plt.figure()
         fWA = plt.figure()
@@ -612,7 +614,9 @@ def lddmm(I,J,**kwargs):
             else:
                 # note use smaller affine parameters
                 if verbose: print('Taking affine and deformation step')
-                _, EM_, ER_, E_, Idnp, lambda1np, Anp = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
+                _, EM_, ER_, E_, \
+                Idnp, lambda1np, Anp, \
+                vt0np, vt1np, vt2np = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
             
             #print(Anp)
             if (nMstep>0
@@ -629,7 +633,8 @@ def lddmm(I,J,**kwargs):
                 fWA.suptitle('Artifact Weight')
                 fWA.canvas.draw()
                 
-            # draw some pictures    
+            ################################################################################
+            # draw some pictures
             f0.clf()
             vis.imshow_slices(Idnp, x=xJ, fig=f0)
             f0.suptitle('Deformed atlas (iter {})'.format(it))
@@ -642,33 +647,47 @@ def lddmm(I,J,**kwargs):
             EMall.append(EM_)
             ERall.append(ER_)
             Eall.append(E_)
-            ax[0].cla()
-            ax[0].plot(list(zip(Eall,EMall,ERall)))
-            xlim = ax[0].get_xlim()
-            ylim = ax[0].get_ylim()
-            ax[0].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
-            ax[0].legend(['Etot','Ematch','Ereg'])
-            ax[0].set_title('Energy minimization')
+            ax[0,0].cla()
+            ax[0,0].plot(list(zip(Eall,EMall,ERall)))
+            xlim = ax[0,0].get_xlim()
+            ylim = ax[0,0].get_ylim()
+            ax[0,0].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
+            ax[0,0].legend(['Etot','Ematch','Ereg'])
+            ax[0,0].set_title('Energy minimization')
             
             # show some parameters to visualize affine transforms
-            # translation
-            Aall.append(Anp.ravel())
+            # use the matrix log so data is close to 0 and and the scale can be seen
+            Aall.append(logm(Anp).ravel())
             Aallnp = np.array(Aall)
-            ax[1].cla()
-            ax[1].plot(range(it+1),Aallnp[:,3:12:4])
-            xlim = ax[1].get_xlim()
-            ylim = ax[1].get_ylim()
-            ax[1].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
-            ax[1].set_title('Translation')
+            if it >= naffine:
+                vmaxall.append(np.sqrt(np.max(vt0np**2 + vt1np**2 + vt2np**2)))
+            else:
+                vmaxall.append(0.0)
+            vmaxallnp = np.array(vmaxall)
+            
+            ax[0,1].cla()
+            ax[0,1].plot(range(it+1),Aallnp[:,3:12:4])
+            xlim = ax[0,1].get_xlim()
+            ylim = ax[0,1].get_ylim()
+            ax[0,1].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
+            ax[0,1].set_title('Translation')
             # linear
-            ax[2].cla()
-            ax[2].plot(range(it+1),Aallnp[:,0:3])
-            ax[2].plot(range(it+1),Aallnp[:,4:7])
-            ax[2].plot(range(it+1),Aallnp[:,8:11])
-            xlim = ax[2].get_xlim()
-            ylim = ax[2].get_ylim()
-            ax[2].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
-            ax[2].set_title('Linear')
+            ax[1,0].cla()
+            ax[1,0].plot(range(it+1),Aallnp[:,0:3])
+            ax[1,0].plot(range(it+1),Aallnp[:,4:7])
+            ax[1,0].plot(range(it+1),Aallnp[:,8:11])
+            xlim = ax[1,0].get_xlim()
+            ylim = ax[1,0].get_ylim()
+            ax[1,0].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
+            ax[1,0].set_title('log-Linear')
+            
+            
+            ax[1,1].cla()
+            ax[1,1].plot(vmaxallnp)            
+            xlim = ax[1,1].get_xlim()
+            ylim = ax[1,1].get_ylim()
+            ax[1,1].set_aspect((xlim[1]-xlim[0])/(ylim[1]-ylim[0]))
+            ax[1,1].set_title('max norm velocity')
             
             # force drawing now (otherwise python will wait until code has stopped running)
             f0.canvas.draw()
@@ -691,7 +710,7 @@ def lddmm(I,J,**kwargs):
                                                      phiinvB0,phiinvB1,phiinvB2,\
                                                      Aphi1tinv0,Aphi1tinv1,Aphi1tinv2])
     # we will use a dictionary as the output
-    # TODO output the deformed images
+    # TODO output the deformed images (done)
     # TODO output weights
     output = {'A':Anp,
               'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np,
