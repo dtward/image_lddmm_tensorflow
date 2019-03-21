@@ -429,9 +429,11 @@ def lddmm(I,J,**kwargs):
     # now we can update weights
     WMnew = tf.exp( tf.pow(fAphiI - J, 2) * (-0.5/sigmaM2 ) ) * 1.0/np.sqrt(2.0*np.pi*sigmaM2)
     WAnew = tf.exp( tf.pow(CA - J, 2) * (-0.5/sigmaA2 ) ) * 1.0/np.sqrt(2.0*np.pi*sigmaA2)
-    Wsum = WMnew+WAnew
+    tiny = 1.0e-6
+    Wsum = WMnew+WAnew + tiny
     WMnew = WMnew/Wsum
     WAnew = WAnew/Wsum
+    
     
     
     
@@ -703,12 +705,14 @@ def lddmm(I,J,**kwargs):
         phiinv0np,phiinv1np,phiinv2np,\
         phi1tinv0np,phi1tinv1np,phi1tinv2np,\
         phiinvB0np,phiinvB1np,phiinvB2np,\
-        Aphi1tinv0np,Aphi1tinv1np,Aphi1tinv2np = sess.run([A,\
+        Aphi1tinv0np,Aphi1tinv1np,Aphi1tinv2np,\
+        WMnp,WAnp                       =  sess.run([A,\
                                                      vt0,vt1,vt2,\
                                                      phiinv0,phiinv1,phiinv2,\
                                                      phi1tinv0,phi1tinv1,phi1tinv2,\
                                                      phiinvB0,phiinvB1,phiinvB2,\
-                                                     Aphi1tinv0,Aphi1tinv1,Aphi1tinv2])
+                                                     Aphi1tinv0,Aphi1tinv1,Aphi1tinv2,\
+                                                     WMnew,WAnew])
     # we will use a dictionary as the output
     # TODO output the deformed images (done)
     # TODO output weights
@@ -718,6 +722,7 @@ def lddmm(I,J,**kwargs):
               'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
               'phiinvAinv0':phiinvB0np,'phiinvAinv1':phiinvB1np,'phiinvAinv2':phiinvB2np,
               'Aphi0':Aphi1tinv0np,'Aphi1':Aphi1tinv1np,'Aphi2':Aphi1tinv2np,
+              'WM':WMnp, 'WA':WAnp,
               'AphiI':Idnp,
               'f_kernel':f, # figure of smoothing kernel      
               'f_deformed':f0, # figure for deformed atlas
