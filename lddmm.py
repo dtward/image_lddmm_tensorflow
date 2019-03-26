@@ -209,6 +209,7 @@ def lddmm(I,J,**kwargs):
     params['nMstep_affine'] = 0 # number of iterations of M step during affine    
     params['CA0'] = np.mean(J) # initial guess for value of artifact
     params['W'] = 1.0 # a fixed weight for each pixel in J, or just a number
+    params['order'] = 1 # order of polynomial for predicting intensity, must be at least 1
     
     # initial guess
     params['A0'] = np.eye(4)
@@ -272,6 +273,11 @@ def lddmm(I,J,**kwargs):
         
     nMstep = params['nMstep']
     nMstep_affine = params['nMstep_affine']
+    
+    # polynomial order
+    order = params['order']
+    if order < 1:
+        raise ValueError('Polynomial order must be 1 (linear) or greater')
     
     # I may want these epsilons to be placeholders
     eV = params['eV']
@@ -423,6 +429,10 @@ def lddmm(I,J,**kwargs):
     CovIJ = tf.reduce_sum(I0*J0*WM*W)/WMsum
     fAphiI = (AphiI - Ibar) * CovIJ / VarI + Jbar
     CA = tf.reduce_sum(J*WA*W)/(tf.reduce_sum(WA*W)+1.0e-6) # if WA is all zeros, this is gonna be a problem
+    
+    ################################################################################
+    # nonlinear contrast transform
+    
     
     
     ################################################################################
@@ -735,6 +745,52 @@ def lddmm(I,J,**kwargs):
     return output
 
 
+
+def downsample(data, factor, average=None):
+    ''' 
+    Downsample data by integer factor, averaging by default
+    
+    TODO
+    '''
+    # check if we should do averaging or not
+    if average is None:
+        average = True
+    # check if a single downsampling factor or 3
+    try:
+        _ = iter(factor)
+    except TypeError as te:
+        factor = np.array([factor,factor,factor])
+    if len(factor) < 3:
+        raise ValueError('Downsampling factor needs to be either one or three elements.')
+        
+        
+
+    
+    pass
+def upsample(data, factor):
+    '''
+    Upsample data by 0 padding in Fourier domain.
+    
+    TODO
+    '''
+    pass
+
+def lddmm_multires(I,J,factors,**kwargs):
+    '''
+    Run multiresolution lddmm, computing downsampling of images and subsequent upsampling of velocity fields
+    
+    Any parameter that used to be innput to LDDMM can now be a list
+    
+    All lists should be the same length as factors.
+    
+    Factors is a list of downsampling factors which can be either a list of integers, or a list of triples of integers
+    
+    
+                
+    
+    TO DO
+    '''
+    pass
 
 # if run as a script from the command line
 if __name__ == '__main__':
