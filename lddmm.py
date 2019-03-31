@@ -40,7 +40,7 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     phi0_index = (phi0 - x0[0])/dx[0]
     phi1_index = (phi1 - x1[0])/dx[1]
     phi2_index = (phi2 - x2[0])/dx[2]
-    if method == 0: # simple hack for nearest neighbor
+    if method == 0: # simple hack for nearest neighbor, weights should all be binary now
         phi0_index = tf.round(phi0_index)
         phi1_index = tf.round(phi1_index)
         phi2_index = tf.round(phi2_index)
@@ -48,31 +48,39 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     # take the floor to get integers
     phi0_index_floor = tf.floor(phi0_index)
     phi1_index_floor = tf.floor(phi1_index)
-    phi2_index_floor = tf.floor(phi2_index)
+    phi2_index_floor = tf.floor(phi2_index)        
+    
     # get the fraction to the next pixel
     phi0_p = phi0_index - phi0_index_floor
     phi1_p = phi1_index - phi1_index_floor
     phi2_p = phi2_index - phi2_index_floor
+    
+    # now convert to int and work with ints
+    phi0_index_floor = tf.cast(phi0_index_floor,dtype=idtype)
+    phi1_index_floor = tf.cast(phi1_index_floor,dtype=idtype)
+    phi2_index_floor = tf.cast(phi2_index_floor,dtype=idtype)
+    
     # get the next samples
     phi0_index_floor_1 = phi0_index_floor+1
     phi1_index_floor_1 = phi1_index_floor+1
     phi2_index_floor_1 = phi2_index_floor+1
     
     # and apply boundary conditions
-    phi0_index_floor = tf.minimum(phi0_index_floor,nx[0]-1)
-    phi0_index_floor = tf.maximum(phi0_index_floor,0)
+    phi0_index_floor   = tf.minimum(phi0_index_floor,nx[0]-1)
+    phi0_index_floor   = tf.maximum(phi0_index_floor,0)
     phi0_index_floor_1 = tf.minimum(phi0_index_floor_1,nx[0]-1)
     phi0_index_floor_1 = tf.maximum(phi0_index_floor_1,0)
-    phi1_index_floor = tf.minimum(phi1_index_floor,nx[1]-1)
-    phi1_index_floor = tf.maximum(phi1_index_floor,0)
+    phi1_index_floor   = tf.minimum(phi1_index_floor,nx[1]-1)
+    phi1_index_floor   = tf.maximum(phi1_index_floor,0)
     phi1_index_floor_1 = tf.minimum(phi1_index_floor_1,nx[1]-1)
     phi1_index_floor_1 = tf.maximum(phi1_index_floor_1,0)
-    phi2_index_floor = tf.minimum(phi2_index_floor,nx[2]-1)
-    phi2_index_floor = tf.maximum(phi2_index_floor,0)
+    phi2_index_floor   = tf.minimum(phi2_index_floor,nx[2]-1)
+    phi2_index_floor   = tf.maximum(phi2_index_floor,0)
     phi2_index_floor_1 = tf.minimum(phi2_index_floor_1,nx[2]-1)
     phi2_index_floor_1 = tf.maximum(phi2_index_floor_1,0)
     # if I wanted to apply zero boundary conditions, I'd have to check here where they are
     # then set to zero below
+    # at this point it should be impossible for any of my indices to point outside the volume
     
     # then we will need to vectorize everything to use scalar indices
     phi0_index_floor_flat = tf.reshape(phi0_index_floor,[-1])
@@ -82,24 +90,26 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     phi2_index_floor_flat = tf.reshape(phi2_index_floor,[-1])
     phi2_index_floor_flat_1 = tf.reshape(phi2_index_floor_1,[-1])
     I_flat = tf.reshape(I,[-1])
+
+
     # indices recall that the LAST INDEX IS CONTIGUOUS
-    phi_index_floor_flat_000 = nx[2]*nx[1]*phi0_index_floor_flat + nx[2]*phi1_index_floor_flat + phi2_index_floor_flat
-    phi_index_floor_flat_001 = nx[2]*nx[1]*phi0_index_floor_flat + nx[2]*phi1_index_floor_flat + phi2_index_floor_flat_1
-    phi_index_floor_flat_010 = nx[2]*nx[1]*phi0_index_floor_flat + nx[2]*phi1_index_floor_flat_1 + phi2_index_floor_flat
-    phi_index_floor_flat_011 = nx[2]*nx[1]*phi0_index_floor_flat + nx[2]*phi1_index_floor_flat_1 + phi2_index_floor_flat_1
-    phi_index_floor_flat_100 = nx[2]*nx[1]*phi0_index_floor_flat_1 + nx[2]*phi1_index_floor_flat + phi2_index_floor_flat
-    phi_index_floor_flat_101 = nx[2]*nx[1]*phi0_index_floor_flat_1 + nx[2]*phi1_index_floor_flat + phi2_index_floor_flat_1
+    phi_index_floor_flat_000 = nx[2]*nx[1]*phi0_index_floor_flat   + nx[2]*phi1_index_floor_flat   + phi2_index_floor_flat
+    phi_index_floor_flat_001 = nx[2]*nx[1]*phi0_index_floor_flat   + nx[2]*phi1_index_floor_flat   + phi2_index_floor_flat_1
+    phi_index_floor_flat_010 = nx[2]*nx[1]*phi0_index_floor_flat   + nx[2]*phi1_index_floor_flat_1 + phi2_index_floor_flat
+    phi_index_floor_flat_011 = nx[2]*nx[1]*phi0_index_floor_flat   + nx[2]*phi1_index_floor_flat_1 + phi2_index_floor_flat_1
+    phi_index_floor_flat_100 = nx[2]*nx[1]*phi0_index_floor_flat_1 + nx[2]*phi1_index_floor_flat   + phi2_index_floor_flat
+    phi_index_floor_flat_101 = nx[2]*nx[1]*phi0_index_floor_flat_1 + nx[2]*phi1_index_floor_flat   + phi2_index_floor_flat_1
     phi_index_floor_flat_110 = nx[2]*nx[1]*phi0_index_floor_flat_1 + nx[2]*phi1_index_floor_flat_1 + phi2_index_floor_flat
     phi_index_floor_flat_111 = nx[2]*nx[1]*phi0_index_floor_flat_1 + nx[2]*phi1_index_floor_flat_1 + phi2_index_floor_flat_1
     
     # now slice the image
-    I000_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_000, dtype=idtype))
+    I000_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_000, dtype=idtype)) 
     I001_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_001, dtype=idtype))
     I010_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_010, dtype=idtype))
     I011_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_011, dtype=idtype))
     I100_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_100, dtype=idtype))
     I101_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_101, dtype=idtype))
-    I110_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_110, dtype=idtype))
+    I110_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_110, dtype=idtype)) 
     I111_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_111, dtype=idtype))
     
     # reshape it
