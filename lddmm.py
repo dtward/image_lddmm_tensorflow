@@ -55,7 +55,7 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     phi1_p = phi1_index - phi1_index_floor
     phi2_p = phi2_index - phi2_index_floor
     
-    # now convert to int and work with ints
+    # now convert to int and work with ints, otherwise I ended up with loss of precision
     phi0_index_floor = tf.cast(phi0_index_floor,dtype=idtype)
     phi1_index_floor = tf.cast(phi1_index_floor,dtype=idtype)
     phi2_index_floor = tf.cast(phi2_index_floor,dtype=idtype)
@@ -224,6 +224,7 @@ def lddmm(I,J,**kwargs):
     # initial guess
     params['A0'] = np.eye(4)
     
+    
     if verbose: print('Set default parameters')
     
     
@@ -297,6 +298,18 @@ def lddmm(I,J,**kwargs):
     post_affine_reduce = params['post_affine_reduce']
     if verbose: print('Initial affine transform {}'.format(params['A0']))
     A0 = tf.convert_to_tensor(params['A0'], dtype=dtype)
+    
+    # initial velocity, I need the nT in order to do this
+    params['vt00'] = np.zeros((I.shape[0],I.shape[1],I.shape[2],nt),dtype=np.float32) 
+    params['vt10'] = np.zeros((I.shape[0],I.shape[1],I.shape[2],nt),dtype=np.float32)
+    params['vt20'] = np.zeros((I.shape[0],I.shape[1],I.shape[2],nt),dtype=np.float32)
+    # note this dtype should be set more robustly
+    params.update(kwargs)
+    vt00 = params['vt00'].astype(np.float32)
+    vt10 = params['vt10'].astype(np.float32)
+    vt20 = params['vt20'].astype(np.float32)
+    
+    
     eV_ph = tf.placeholder(dtype=dtype)
     eL_ph = tf.placeholder(dtype=dtype)
     eT_ph = tf.placeholder(dtype=dtype)
@@ -349,13 +362,13 @@ def lddmm(I,J,**kwargs):
         A = tf.get_variable('A', dtype=dtype, trainable=False, initializer=A0)
         Anew = tf.get_variable('Anew', dtype=dtype, trainable=False, initializer=A0)
         
-        vt0 = tf.get_variable('vt0', shape=[nxI[0],nxI[1],nxI[2],nt], dtype=dtype, trainable=False, initializer=tf.zeros_initializer())
-        vt1 = tf.get_variable('vt1', shape=[nxI[0],nxI[1],nxI[2],nt],dtype=dtype,trainable=False, initializer=tf.zeros_initializer())
-        vt2 = tf.get_variable('vt2', shape=[nxI[0],nxI[1],nxI[2],nt], dtype=dtype, trainable=False, initializer=tf.zeros_initializer())
+        vt0 = tf.get_variable('vt0', dtype=dtype, trainable=False, initializer=vt00)
+        vt1 = tf.get_variable('vt1', dtype=dtype, trainable=False, initializer=vt10)
+        vt2 = tf.get_variable('vt2', dtype=dtype, trainable=False, initializer=vt20)
 
-        vt0new = tf.get_variable('vt0new', shape=[nxI[0],nxI[1],nxI[2],nt], dtype=dtype, trainable=False, initializer=tf.zeros_initializer())
-        vt1new = tf.get_variable('vt1new', shape=[nxI[0],nxI[1],nxI[2],nt], dtype=dtype, trainable=False, initializer=tf.zeros_initializer())
-        vt2new = tf.get_variable('vt2new', shape=[nxI[0],nxI[1],nxI[2],nt], dtype=dtype,trainable=False, initializer=tf.zeros_initializer())
+        vt0new = tf.get_variable('vt0new', dtype=dtype, trainable=False, initializer=vt00)
+        vt1new = tf.get_variable('vt1new', dtype=dtype, trainable=False, initializer=vt10)
+        vt2new = tf.get_variable('vt2new', dtype=dtype, trainable=False, initializer=vt20)
         
         # build initial weights WM (matching) and WA (artifact)
         # if not using weights just use 1 and 0
@@ -774,16 +787,116 @@ def downsample(data, factor, average=None):
         raise ValueError('Downsampling factor needs to be either one or three elements.')
         
         
+def down2(I):
+    n0 = np.array(I.shape)
+    n1 = n0//2
+    J = np.zeros(n1)
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                J += 0.125*I[i:n1[0]*2:2,j:n1[1]*2:2,k:n1[2]*2:2]
+    return J 
 
+# upsample the v
+def upsample(I,nup):
+    '''Upsample by zero padding in the Fourier domain'''
+    n = np.array(I.shape)
     
-    pass
-def upsample(data, factor):
-    '''
-    Upsample data by 0 padding in Fourier domain.
+    # now I want to upsample by zero padding in the Fourier domain
+    even = (1 - (n % 2)).astype(int)
+    shift = even * n//2 + (1-even) * (n-1)//2
     
-    TODO
+    J = np.array(I)
+    
+    # upsample the 0th axis
+    if nup[0] > n[0]:
+        Jhat = np.fft.fft(J, axis=0)
+        Jhat = np.roll(Jhat,shift[0],axis=0)
+        if even[0]:
+            # if even, make nyquist paired
+            Jhat[0,:,:] /= 2.0
+            Jhat = np.pad(Jhat,pad_width=((0,1),(0,0),(0,0)),mode='edge')
+            n[0] = n[0] + 1
+        # now pad
+        Jhat = np.pad(Jhat,pad_width=((0,nup[0]-n[0]),(0,0),(0,0)),mode='constant',constant_values=0)
+        # shift it
+        Jhat = np.roll(Jhat,-shift[0],axis=0)
+        J = np.fft.ifft(Jhat,axis=0).real
+    
+    # upsample the 1th axis
+    if nup[1] > n[1]:
+        Jhat = np.fft.fft(J, axis=1)
+        Jhat = np.roll(Jhat,shift[1],axis=1)
+        if even[1]:
+            # if even, make nyquist paired
+            Jhat[:,0,:] /= 2.0
+            Jhat = np.pad(Jhat,pad_width=((0,0),(0,1),(0,0)),mode='edge')
+            n[1] = n[1] + 1
+        # now pad
+        Jhat = np.pad(Jhat,pad_width=((0,0),(0,nup[1]-n[1]),(0,0)),mode='constant',constant_values=0)
+        # shift it
+        Jhat = np.roll(Jhat,-shift[1],axis=1)
+        J = np.fft.ifft(Jhat,axis=1).real
+    
+    # upsample the 2th axis
+    if nup[2] > n[2]:
+        Jhat = np.fft.fft(J, axis=2)
+        Jhat = np.roll(Jhat,shift[2],axis=2)
+        if even[1]:
+            # if even, make nyquist paired
+            Jhat[:,:,0] /= 2.0
+            Jhat = np.pad(Jhat,pad_width=((0,0),(0,0),(0,1)),mode='edge')
+            n[2] = n[2] + 1
+        # now pad
+        Jhat = np.pad(Jhat,pad_width=((0,0),(0,0),(0,nup[2]-n[2])),mode='constant',constant_values=0)
+        # shift it
+        Jhat = np.roll(Jhat,-shift[2],axis=2)
+        J = np.fft.ifft(Jhat,axis=2).real
+    
+    # correct normalization
+    # note inverse has 1/n
+    J = J * np.prod(nup) / np.prod(n);
+
+    return J
+
+def affine_transform_data(x0,x1,x2,data,A,y0=None,y1=None,y2=None,y=None):
+    B = np.linalg.inv(A)
+    if y is not None:
+        y0,y1,y2=y
+    if y0 is None:
+        y0 = x0
+        y1 = x1
+        y2 = x2
+    Y0,Y1,Y2 = np.meshgrid(y0,y1,y2,indexing='ij')
+    tform0 = B[0,0]*Y0 + B[0,1]*Y1 + B[0,2]*Y2 + B[0,3]
+    tform1 = B[1,0]*Y0 + B[1,1]*Y1 + B[1,2]*Y2 + B[1,3]
+    tform2 = B[2,0]*Y0 + B[2,1]*Y1 + B[2,2]*Y2 + B[2,3]
+    
+    return transform_data(x0,x1,x2,data,tform0,tform1,tform2)
+    
+def transform_data(x0,x1,x2,data,tform0,tform1,tform2,y0=None,y1=None,y2=None,y=None):
+    ''' Transform data as follows.
+    Resample tform at the points specified in y (or don't resample' if y is None)
+    apply tform to data
+    data grid points are in x
     '''
-    pass
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())        
+        if y is not None:
+            y0,y1,y2 = y            
+        if y0 is None:
+            pass
+        else:
+            Y0,Y1,Y2 = np.meshgrid(y0,y1,y2,indexing='ij')
+            # first we upsample the transformation    
+            tform0 = lddmm.interp3(x0,x1,x2,tform0,Y0,Y1,Y2)
+            tform1 = lddmm.interp3(x0,x1,x2,tform1,Y0,Y1,Y2)
+            tform2 = lddmm.interp3(x0,x1,x2,tform2,Y0,Y1,Y2)
+
+        # now upsample the data
+        output = interp3(x0,x1,x2,data,tform0,tform1,tform2).eval()
+    return output
+
 
 def lddmm_multires(I,J,factors,**kwargs):
     '''
@@ -1019,3 +1132,6 @@ if __name__ == '__main__':
             f.write('\n')
             
     # thats it!
+    
+    
+# more utilities
