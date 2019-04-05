@@ -4,7 +4,9 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
+def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cmap=None,
+                  contour0=None,contour1=None,contour2=None,contour=None,levels=None, # for contours
+                  colorbar=None,colorbar_ticks=None,colorbar_ticklabels=None): # for colorbar
     ''' Draw a set of slices in 3 planes
     Mandatory argument is image I
     Optional arguments
@@ -28,10 +30,20 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
     if x2 is None:
         x2 = np.arange(I.shape[2])
     
-    vmin = np.min(I)
-    vmax = np.max(I)
-    vmin,vmax = np.quantile(I,(0.001,0.999))
+    if clim is None:
+        vmin = np.min(I)
+        vmax = np.max(I)
+        vmin,vmax = np.quantile(I,(0.001,0.999))
+    else:
+        vmin,vmax = clim
+    if cmap is None:
+        cmap = 'gray'
     
+    # for contours
+    if contour is not None:
+        contour0,contour1,contour2 = contour
+    
+    # calculate slices
     slices0 = np.linspace(0,I.shape[0],n+2,dtype=int)[1:-1]
     slices1 = np.linspace(0,I.shape[1],n+2,dtype=int)[1:-1]
     slices2 = np.linspace(0,I.shape[2],n+2,dtype=int)[1:-1]
@@ -46,7 +58,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
             kwargs['sharey'] = ax0[0]
         ax = fig.add_subplot(3,n,i+1)
         ax.imshow(I[s,:,:], extent=(x2[0],x2[-1],x1[0],x1[-1]), 
-                  cmap='gray', interpolation='none', aspect='equal', 
+                  cmap=cmap, interpolation='none', aspect='equal', 
                   vmin=vmin, vmax=vmax)
         ax.set_xlabel('x2')
         ax.xaxis.tick_top()
@@ -55,7 +67,11 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
             ax.set_ylabel('x1')
         else:
             ax.set_yticklabels([])
-        
+            
+        if contour1 is not None:
+            ax.contour(x2,x1,contour1[s,:,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+        if contour2 is not None:
+            ax.contour(x2,x1,contour2[s,:,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
         ax0.append(ax)
     axs.append(ax0)
     
@@ -70,8 +86,12 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
             kwargs['sharex'] = ax0[0]
         ax = fig.add_subplot(3,n,i+1+n)
         ax.imshow(I[:,s,:], extent=(x2[0],x2[-1],x0[0],x0[-1]), 
-                  cmap='gray', interpolation='none', aspect='equal', 
+                  cmap=cmap, interpolation='none', aspect='equal', 
                   vmin=vmin, vmax=vmax)
+        if contour0 is not None:
+            ax.contour(x2,x0,contour0[:,s,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+        if contour2 is not None:
+            ax.contour(x2,x0,contour2[:,s,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
         
         # no x labels necessary
         ax.set_xticklabels([])
@@ -97,8 +117,8 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
         else:
             kwargs['sharey'] = ax1[0]
         ax = fig.add_subplot(3,n,i+1+2*n)
-        ax.imshow(I[:,:,s], extent=(x1[0],x1[-1],x0[0],x0[-1]), 
-                  cmap='gray', interpolation='none', aspect='equal', 
+        h = ax.imshow(I[:,:,s], extent=(x1[0],x1[-1],x0[0],x0[-1]), 
+                  cmap=cmap, interpolation='none', aspect='equal', 
                   vmin=vmin, vmax=vmax)
         ax.set_xlabel('x1')        
         if i==0:
@@ -106,8 +126,22 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None):
         else:
             ax.set_yticklabels([])
         
+        if contour0 is not None:
+            ax.contour(x1,x0,contour0[:,:,s],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+        if contour1 is not None:
+            ax.contour(x1,x0,contour1[:,:,s],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+        
         ax2.append(ax)
     axs.append(ax2)
+    
+    # also add colorbar
+    if colorbar is not None and colorbar:
+        tmp = plt.colorbar(mappable=h,ax=axs)
+        if colorbar_ticks is not None:
+            tmp.set_ticks(colorbar_ticks)
+        if colorbar_ticklabels is not None:
+            tmp.set_ticklabels(colorbar_ticklabels)
+    
     
     return fig, axs
     
