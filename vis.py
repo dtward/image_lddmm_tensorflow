@@ -157,4 +157,40 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
     
     return fig, axs
     
+def RGB_from_pair(I,J,climI=None,climJ=None):
+    ''' Stack two images into red green 
+    normalize by min and max.
+    if clims are provided, normalize by clims
+    '''
+    if climI is None:
+        climI = [np.min(I),np.max(I)]
+    if climJ is None:
+        climJ = [np.min(J),np.max(J)]
+    Ishow = np.array(I)
+    Ishow -= climI[0]
+    Ishow /= climI[1]
+    Jshow = np.array(J)
+    Jshow -= climJ[0]
+    Jshow /= climJ[1]
+    return np.stack([Ishow,Jshow,Jshow*0],axis=-1)
+def RGB_from_labels(L,I=None,clim=None,alpha=0.5):
+    ''' Transform labels using 256 random colors'''
+    colors = np.random.rand(256,3)
+    Lmod = (L.astype(int)%256).ravel()
+    print(L.shape)
+    print(Lmod.shape)
+    print(I.shape)
+    LRGB = np.stack([colors[Lmod,0],colors[Lmod,1],colors[Lmod,2]],axis=-1)
+    LRGB.shape = [L.shape[0],L.shape[1],L.shape[2],3]
     
+    ImRGB = LRGB
+    if I is not None:
+        if clim is None:
+            clim = [np.min(I),np.max(I)]     
+        Is = np.array(I)
+        Is -= clim[0]
+        Is /= clim[1]
+        Is *= (1.0-alpha)
+        ImRGB *= alpha
+        ImRGB += Is[:,:,:,None]
+    return ImRGB
