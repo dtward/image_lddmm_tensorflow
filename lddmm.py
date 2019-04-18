@@ -6,6 +6,7 @@ import vis
 import os
 import argparse
 import nibabel as nib
+import warnings
 #from pyevtk.hl import imageToVTK  # for writing outputs
  
 dtype = tf.float32
@@ -254,6 +255,9 @@ def lddmm(I,J,**kwargs):
     
     nxI = I.shape
     nxJ = J.shape
+    
+    # padded
+    xJp = [np.concatenate(((xJ[c][0]-dxJ[c])[None], xJ[c], (xJ[c][-1]+dxJ[c])[None]))  for c in range(3)]
     
     a = params['a']
     p = params['p']
@@ -520,7 +524,7 @@ def lddmm(I,J,**kwargs):
     ################################################################################
     # Now the gradient with respect to the deformation parameters
     # TODO: I may want to zero pad it, and get a padded domain as well, that way I can have nice zero boundary conditions which are appropriate for this error
-    
+    lambda1p = tf.pad(lambda1,[[1,1],[1,1],[1,1]],'CONSTANT')
     
     # flow the error backwards
     phi1tinv0 = tf.convert_to_tensor(X0I, dtype=dtype)
@@ -556,7 +560,8 @@ def lddmm(I,J,**kwargs):
         Aphi1tinv0 = A[0,0]*phi1tinv0 + A[0,1]*phi1tinv1 + A[0,2]*phi1tinv2 + A[0,3];
         Aphi1tinv1 = A[1,0]*phi1tinv0 + A[1,1]*phi1tinv1 + A[1,2]*phi1tinv2 + A[1,3];
         Aphi1tinv2 = A[2,0]*phi1tinv0 + A[2,1]*phi1tinv1 + A[2,2]*phi1tinv2 + A[2,3];        
-        lambda_ = interp3(x0J, x1J, x2J, lambda1, Aphi1tinv0, Aphi1tinv1, Aphi1tinv2)*detjac*tf.abs(tf.linalg.det(A))
+        #lambda_ = interp3(x0J, x1J, x2J, lambda1, Aphi1tinv0, Aphi1tinv1, Aphi1tinv2)*detjac*tf.abs(tf.linalg.det(A))
+        lambda_ = interp3(*xJp, lambda1p, Aphi1tinv0, Aphi1tinv1, Aphi1tinv2)*detjac*tf.abs(tf.linalg.det(A))
 
         # set up the gradient at this time        
         grad0 = lambda_*fI_0
@@ -1135,3 +1140,61 @@ if __name__ == '__main__':
     
     
 # more utilities
+
+
+def orientation_to_matrix(input_str, desired_str):
+    ''' Specify orientation with a sring of symbols and produce a matrix to change orientation.
+    Symbols are: R/L (right/left)
+                 A/P (anterior/posterior)
+                 S/I (superior/inferior)
+              or D/V (dorsal/ventral) (not supported)
+    specify orientation with three symbols, meaning direction from negative to positive for three axes
+    e.g. RPI means x0 axis moves from left to right
+                   x1 axis moves from anterior to posterior
+                   x2 axis moves from superior to inferior
+    '''
+    if (not isinstance(input_str, str)) or (not isinstance(desired_str, str)):
+        raise TypeError('inputs must be orientation strings, e.g. RPI for right posterior anterior')
+    input_str = input_str.upper()
+    desired_str = desired_str.upper()
+    if len(input_str) != 3 or len(desired_str) != 3:
+        raise ValueError('length of input strings must be 3')
+    
+    # the symbols tell us about permutations and flips
+    # as a canonical use analyze default "transverse unflipped (LAS*)" where * is slice dimension
+    # what is the matrix that goes from canonical to your direction
+    # e.g. a matrix for LAS to RPI? this would just be three flips
+    # I'll do the following, first flip
+    def canonical_to_observed(input_str):
+        '''This function is internal because canonical means different things to different people.
+        In particular, LAS is NOT right handed.'''
+        A = np.eye(4)
+
+        if 'R' in input_str:
+            A = np.diag([-1,1,1,1]) @ A
+        if 'P' in input_str:
+            A = np.diag([1,-1,1,1]) @ A
+        if 'I' in input_str:
+            A = np.diag([1,1,-1,1]) @ A
+    
+        # now we just have to worry about permutation
+        input_str = input_str.replace('R','L')
+        input_str = input_str.replace('P','A')
+        input_str = input_str.replace('I','S')
+        
+        Lind = input_str.find('L')
+        Aind = input_str.find('A')
+        Sind = input_str.find('S')
+        
+        permutation = np.array([Lind,Aind,Sind])
+        zero_to_three = np.arange(4)
+        P = np.array([zero_to_three == permutation[0],
+                     zero_to_three == permutation[1],
+                     zero_to_three == permutation[2],
+                     [0,0,0,1]]).T
+        A = P@A
+        return A
+    A = canonical_to_observed(desired_str) @ np.linalg.inv(canonical_to_observed(input_str))                
+    if np.linalg.det(A) < 0:
+        warnings.warn('Determinant of orientation transformation is negative.  Maybe you mixed up left and right?')
+    return A
