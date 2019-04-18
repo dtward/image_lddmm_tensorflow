@@ -5,7 +5,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cmap=None,
-                  contour0=None,contour1=None,contour2=None,contour=None,levels=None, # for contours
+                  contour0=None,contour1=None,contour2=None,contour=None,levels=None,contour_all=None,contour_color=None, contour_alpha=None,# for contours
                   colorbar=None,colorbar_ticks=None,colorbar_ticklabels=None): # for colorbar
     ''' Draw a set of slices in 3 planes
     Mandatory argument is image I
@@ -42,6 +42,10 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
     # for contours
     if contour is not None:
         contour0,contour1,contour2 = contour
+    if contour_color is None:
+        contour_color = 'w'
+    if contour_alpha is None:
+        contour_alpha = 0.5
     
     # calculate slices
     slices0 = np.linspace(0,I.shape[0],n+2,dtype=int)[1:-1]
@@ -50,6 +54,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
     axs = []
     
     # the first slice, fix the first index
+    origin = 'lower'
     ax0 = []
     for i,s in enumerate(slices0):
         kwargs = dict()        
@@ -57,7 +62,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
             kwargs['sharex'] = ax0[0]
             kwargs['sharey'] = ax0[0]
         ax = fig.add_subplot(3,n,i+1)
-        ax.imshow(I[s,:,:], extent=(x2[0],x2[-1],x1[0],x1[-1]), 
+        ax.imshow(I[s,:,:], extent=(x2[0],x2[-1],x1[0],x1[-1]), origin=origin,
                   cmap=cmap, interpolation='none', aspect='equal', 
                   vmin=vmin, vmax=vmax)
         ax.set_xlabel('x2')
@@ -69,11 +74,15 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
             ax.set_yticklabels([])
             
         if contour1 is not None:
-            ax.contour(x2,x1,contour1[s,:,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+            ax.contour(x2,x1,contour1[s,:,:],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
         if contour2 is not None:
-            ax.contour(x2,x1,contour2[s,:,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+            ax.contour(x2,x1,contour2[s,:,:],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
+        if contour_all is not None and contour0 is not None:
+            ax.contour(x2,x1,contour0[s,:,:],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
         ax0.append(ax)
     axs.append(ax0)
+    
+    
     
     # the second slice fix the second index
     ax1 = []
@@ -85,14 +94,16 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
         else:
             kwargs['sharex'] = ax0[0]
         ax = fig.add_subplot(3,n,i+1+n)
-        ax.imshow(I[:,s,:], extent=(x2[0],x2[-1],x0[0],x0[-1]), 
+        ax.imshow(I[:,s,:], extent=(x2[0],x2[-1],x0[0],x0[-1]), origin=origin,
                   cmap=cmap, interpolation='none', aspect='equal', 
                   vmin=vmin, vmax=vmax)
         if contour0 is not None:
-            ax.contour(x2,x0,contour0[:,s,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+            ax.contour(x2,x0,contour0[:,s,:],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
         if contour2 is not None:
-            ax.contour(x2,x0,contour2[:,s,:],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
-        
+            ax.contour(x2,x0,contour2[:,s,:],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
+        if contour_all is not None and contour1 is not None:
+            ax.contour(x2,x0,contour1[:,s,:],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
+            
         # no x labels necessary
         ax.set_xticklabels([])
         ax.xaxis.tick_top() # better on top so it more obviously shares the label
@@ -117,7 +128,7 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
         else:
             kwargs['sharey'] = ax1[0]
         ax = fig.add_subplot(3,n,i+1+2*n)
-        h = ax.imshow(I[:,:,s], extent=(x1[0],x1[-1],x0[0],x0[-1]), 
+        h = ax.imshow(I[:,:,s], extent=(x1[0],x1[-1],x0[0],x0[-1]), origin=origin,
                   cmap=cmap, interpolation='none', aspect='equal', 
                   vmin=vmin, vmax=vmax)
         ax.set_xlabel('x1')        
@@ -127,10 +138,11 @@ def imshow_slices(I,x0=None,x1=None,x2=None,x=None,n=None,fig=None,clim=None,cma
             ax.set_yticklabels([])
         
         if contour0 is not None:
-            ax.contour(x1,x0,contour0[:,:,s],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
+            ax.contour(x1,x0,contour0[:,:,s],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
         if contour1 is not None:
-            ax.contour(x1,x0,contour1[:,:,s],levels=levels,colors=['w'],linestyles=['solid'],linewidths=1,alpha=0.5)
-        
+            ax.contour(x1,x0,contour1[:,:,s],levels=levels,colors=[contour_color],linestyles=['solid'],linewidths=1,alpha=contour_alpha)
+        if contour_all is not None and contour2 is not None:
+            ax.contour(x1, x0, contour2[:,:,s], levels=levels, colors=[contour_color], linestyles=['solid'], linewidths=1, alpha=contour_alpha)
         ax2.append(ax)
     axs.append(ax2)
     
