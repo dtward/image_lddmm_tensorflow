@@ -312,6 +312,33 @@ def lddmm(I,J,**kwargs):
     vt00 = params['vt00'].astype(np.float32)
     vt10 = params['vt10'].astype(np.float32)
     vt20 = params['vt20'].astype(np.float32)
+    # check if these are the right size, if not, upsample them
+    nt_check = vt00.shape[-1]
+    if nt_check != nt:
+        raise ValueError('input velocity field should be the same number of timesteps as nt parameter')        
+    n0_check = vt00.shape[0]
+    n1_check = vt00.shape[1]
+    n2_check = vt00.shape[2]
+    if n0_check != nxI[0] or n1_check != nxI[1] or n2_check != nxI[2]:
+        warnings.warn('upsampling initial guess of velocity field')
+        shape = np.array([I.shape[0],I.shape[1],I.shape[2],nt])
+        vt00_ = vt00
+        vt10_ = vt10
+        vt20_ = vt20
+        vt00 = np.zeros(shape)
+        vt10 = np.zeros(shape)
+        vt20 = np.zeros(shape)
+        for t in range(nt):
+            print('Upsampling time {} of {}'.format(t,nt))
+            vt00[:,:,:,t] = upsample(vt00_[:,:,:,t],shape[:3])
+            vt10[:,:,:,t] = upsample(vt10_[:,:,:,t],shape[:3])
+            vt20[:,:,:,t] = upsample(vt20_[:,:,:,t],shape[:3])
+        vt00 = vt00.astype(np.float32)
+        vt10 = vt10.astype(np.float32)
+        vt20 = vt20.astype(np.float32)
+        
+    
+    
     
     
     eV_ph = tf.placeholder(dtype=dtype)
@@ -697,7 +724,9 @@ def lddmm(I,J,**kwargs):
             
             # show some parameters to visualize affine transforms
             # use the matrix log so data is close to 0 and and the scale can be seen
-            Aall.append(logm(Anp).ravel())
+            # the logm function always outputs warnings abut inaccuracy, use disp=False and save error to a variable
+            logmAnp,_ = logm(Anp, disp=False) 
+            Aall.append(logmAnp.ravel())
             Aallnp = np.array(Aall)
             if it >= naffine:
                 vmaxall.append(np.sqrt(np.max(vt0np**2 + vt1np**2 + vt2np**2)))
