@@ -177,9 +177,7 @@ def RGB_from_labels(L,I=None,clim=None,alpha=0.5):
     ''' Transform labels using 256 random colors'''
     colors = np.random.rand(256,3)
     Lmod = (L.astype(int)%256).ravel()
-    print(L.shape)
-    print(Lmod.shape)
-    print(I.shape)
+    
     LRGB = np.stack([colors[Lmod,0],colors[Lmod,1],colors[Lmod,2]],axis=-1)
     LRGB.shape = [L.shape[0],L.shape[1],L.shape[2],3]
     
