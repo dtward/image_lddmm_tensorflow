@@ -7,6 +7,7 @@ import os
 import argparse
 import nibabel as nib
 import warnings
+import scipy.interpolate as spi
 #from pyevtk.hl import imageToVTK  # for writing outputs
  
 dtype = tf.float32
@@ -145,6 +146,13 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     
     return Il
 
+def interp3_scipy(x0,x1,x2,I,phi0,phi1,phi2,method=1):
+    '''This method is for interpolating using numpy arrays only
+    This avoids some issues with tensorflow precision and maximum size    
+    '''
+    #pi.interpn((x0,x1,x2),I,np.stack((phi0,phi1,phi2),axis=-1), )
+    
+    pass
 
 def grad3(I,dx):
     #I_0 = (tf.manip.roll(I,shift=-1,axis=0) - tf.manip.roll(I,shift=1,axis=0))/2.0/dx[0]
@@ -329,7 +337,7 @@ def lddmm(I,J,**kwargs):
         vt10 = np.zeros(shape)
         vt20 = np.zeros(shape)
         for t in range(nt):
-            print('Upsampling time {} of {}'.format(t,nt))
+            print('Upsampling velocity time {} of {}'.format(t,nt))
             vt00[:,:,:,t] = upsample(vt00_[:,:,:,t],shape[:3])
             vt10[:,:,:,t] = upsample(vt10_[:,:,:,t],shape[:3])
             vt20[:,:,:,t] = upsample(vt20_[:,:,:,t],shape[:3])
@@ -893,7 +901,7 @@ def upsample(I,nup):
 
     return J
 
-def affine_transform_data(x0,x1,x2,data,A,y0=None,y1=None,y2=None,y=None):
+def affine_transform_data(x0,x1,x2,data,A,y0=None,y1=None,y2=None,y=None,**kwargs):
     B = np.linalg.inv(A)
     if y is not None:
         y0,y1,y2=y
@@ -906,29 +914,44 @@ def affine_transform_data(x0,x1,x2,data,A,y0=None,y1=None,y2=None,y=None):
     tform1 = B[1,0]*Y0 + B[1,1]*Y1 + B[1,2]*Y2 + B[1,3]
     tform2 = B[2,0]*Y0 + B[2,1]*Y1 + B[2,2]*Y2 + B[2,3]
     
-    return transform_data(x0,x1,x2,data,tform0,tform1,tform2)
+    return transform_data(x0,x1,x2,data,tform0,tform1,tform2,**kwargs)
     
-def transform_data(x0,x1,x2,data,tform0,tform1,tform2,y0=None,y1=None,y2=None,y=None):
+def transform_data(x0,x1,x2,data,tform0,tform1,tform2,
+                   y0=None,y1=None,y2=None,y=None,
+                   t0=None,t1=None,t2=None,t=None,
+                   **kwargs):
     ''' Transform data as follows.
     Resample tform at the points specified in y (or don't resample' if y is None)
     apply tform to data
     data grid points are in x
+    If resampling you also need to specify the locations of the gridpoints in the transform
+    These are set in the t variables
     '''
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())        
+        # unpack tuples
         if y is not None:
-            y0,y1,y2 = y            
+            y0,y1,y2 = y
+        if t is not None:
+            t0,t1,t2 = t
+        
+        
+        
         if y0 is None:
             pass
         else:
+            if t0 is None:
+                raise ValueError('If you set y (locations to resample transform) you must set t (grid points of transform)')
             Y0,Y1,Y2 = np.meshgrid(y0,y1,y2,indexing='ij')
-            # first we upsample the transformation    
-            tform0 = lddmm.interp3(x0,x1,x2,tform0,Y0,Y1,Y2)
-            tform1 = lddmm.interp3(x0,x1,x2,tform1,Y0,Y1,Y2)
-            tform2 = lddmm.interp3(x0,x1,x2,tform2,Y0,Y1,Y2)
+            # first we upsample the transformation
+            # note that there is a problem here
+            # the transform is typically not defined on the grid points x or y
+            tform0 = interp3(t0,t1,t2,tform0,Y0,Y1,Y2)
+            tform1 = interp3(t0,t1,t2,tform1,Y0,Y1,Y2)
+            tform2 = interp3(t0,t1,t2,tform2,Y0,Y1,Y2)
 
         # now upsample the data
-        output = interp3(x0,x1,x2,data,tform0,tform1,tform2).eval()
+        output = interp3(x0,x1,x2,data,tform0,tform1,tform2,**kwargs).eval()
     return output
 
 
