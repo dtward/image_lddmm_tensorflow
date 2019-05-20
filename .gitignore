@@ -106,3 +106,4 @@ venv.bak/
 # elastix processing
 /elastix_comparison
 *.tiff
+/comparison_to_elastix/assets
