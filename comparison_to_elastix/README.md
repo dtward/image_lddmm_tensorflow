@@ -1,5 +1,20 @@
 ### Quick comparison to Elastix for the Mouse Nissl example
 
+The images below show a cross-section of the "fixed" and "moving" brains that were registered with LDDMM, and Elastix.  
+Green-Magenta composites show the overlay of the fixed image and the now _deformed_ moving brain.     
+Ideal overlap should yield gray (however, that is generally only possible for identical images,
+ what we are looking is a "blend" between green and magenta. Where we see only green or only magenta, there is no match (like parts of the olfactory bulb)).
+
+![fixed_and_moving](assets/README-93549476.png)
+
+![composite_comparison_a](assets/README-d37b1745.png)
+
+![composite_comparison_b](assets/README-6b74997b.png)
+
+![composite_comparison_c](assets/README-c740d282.png)
+
+
+
 I used 400 iterations, but otherwise default parameters for LDDMM Registration
 ```python
 p = 2
@@ -20,12 +35,4 @@ bSpline parameter file. Parameter files are attached.
 I used `PMD3097_orig_target_STS_clean.hdr` as the _fixed_ image and `PMD2052_orig_target_STS_clean.hdr` as the _moving_ image.
 
 Interestingly, LDDMM performs really well compared to Elastix, however, Elastix does seem to match smaller structures somewhat better (see hippocampus) and does not artificially extend the olfactory bulb. Despite this, LDDMM looks promising, and I am sure the author could adjust the parameters so as to make the
-registration work better. 
-
-![fixed_and_moving](assets/README-93549476.png)
-
-![composite_comparison_a](assets/README-d37b1745.png)
-
-![composite_comparison_b](assets/README-6b74997b.png)
-
-![composite_comparison_c](assets/README-c740d282.png)
+registration work better.
