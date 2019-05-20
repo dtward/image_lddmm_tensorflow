@@ -1,9 +1,8 @@
 ### Quick comparison to Elastix for the Mouse Nissl example
 
 The images below show a cross-section of the "fixed" and "moving" brains that were registered with LDDMM, and Elastix (v. 4.900).  
-Green-Magenta composites show the overlay of the fixed image and the now _deformed_ moving brain.  
-Ideal overlap should yield gray (however, that is generally only possible for identical images,  
- what we are looking is a "blend" between green and magenta. Where we see only green or only magenta,<br/>there is no match (like parts of the olfactory bulb)).
+Green-Magenta composites show the overlay of the fixed image and the now _deformed_ moving brain. Ideal overlap should yield gray.<br/>
+ However, that is generally only possible for identical images, and what we are looking is a "blend" between green and magenta.<br/> Where we see only green or only magenta, there is no overlap (like parts of the olfactory bulb)).
 
 ![fixed_and_moving](assets/README-93549476.png)
 Fixed an moving image before deformation.
