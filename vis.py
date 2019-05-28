@@ -1,4 +1,4 @@
-print('importing vis')
+#print('importing vis')
 
 import numpy as np
 import matplotlib as mpl
