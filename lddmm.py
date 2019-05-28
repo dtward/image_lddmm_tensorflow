@@ -115,8 +115,6 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     I111_flat = tf.gather(I_flat, tf.cast(phi_index_floor_flat_111, dtype=idtype))
     
     # reshape it
-    # note I had a mistake here and I used nx rather than nxout
-    # but, this is causing me lots of trouble
     I000 = tf.reshape(I000_flat, nxout)
     I001 = tf.reshape(I001_flat, nxout)
     I010 = tf.reshape(I010_flat, nxout)
@@ -483,17 +481,37 @@ def lddmm(I,J,**kwargs):
     ################################################################################
     # here I will include contrast transform (just linear for now)
     WMsum = tf.reduce_sum(WM*W)
-    Ibar = tf.reduce_sum(AphiI*WM*W)/WMsum
-    I0 = AphiI-Ibar
-    Jbar = tf.reduce_sum(J*WM*W)/WMsum
-    J0 = J-Jbar
-    VarI = tf.reduce_sum(I0**2*WM*W)/WMsum
-    CovIJ = tf.reduce_sum(I0*J0*WM*W)/WMsum
-    fAphiI = (AphiI - Ibar) * CovIJ / VarI + Jbar
-    CA = tf.reduce_sum(J*WA*W)/(tf.reduce_sum(WA*W)+1.0e-6) # if WA is all zeros, this is gonna be a problem
+    WMW = WM*W
+    WAW = WA*W
+    CA = tf.reduce_sum(J*WAW)/(tf.reduce_sum(WAW)+1.0e-6) # if WA is all zeros, this is gonna be a problem
+    
+    #Ibar = tf.reduce_sum(AphiI*WMW)/WMsum
+    #I0 = AphiI-Ibar
+    #Jbar = tf.reduce_sum(J*WMW)/WMsum
+    #J0 = J-Jbar
+    #VarI = tf.reduce_sum(I0**2*WMW)/WMsum
+    #CovIJ = tf.reduce_sum(I0*J0*WMW)/WMsum
+    #fAphiI = (AphiI - Ibar) * CovIJ / VarI + Jbar
+    
+    
     
     ################################################################################
     # nonlinear contrast transform
+    # get basis functions    
+    # note stacks along first dimension
+    Is = tf.reshape(AphiI,[-1])
+    Js = tf.reshape(J,[-1])
+    WMWs = tf.reshape(WMW,[-1])
+    Basis = tf.stack( [Is**o for o in range(order+1)] ) # size O x N (order+1 by number of voxels)
+    # Basis times J (size Ox1)
+    BTJ = tf.reduce_mean(Basis * Js[None]*WMWs[None], axis=1)
+    # get basis times basis (size OxO)
+    BTB = tf.reduce_mean( Basis[:,None,:] * Basis[None,:,:] * WMWs[None,None], axis=2 )
+    coeffs = tf.matrix_solve(BTB,BTJ[:,None])
+    fAphiI = tf.zeros_like(Js)
+    for o in range(order+1):
+        fAphiI += (Is**o)*coeffs[o]    
+    fAphiI = tf.reshape(fAphiI,nxJ)
     
     
     
@@ -830,6 +848,7 @@ def downsample(data, factor, average=None):
         
         
 def down2(I):
+    '''Downsample by a factor of 2'''
     n0 = np.array(I.shape)
     n1 = n0//2
     J = np.zeros(n1)
@@ -837,7 +856,21 @@ def down2(I):
         for j in range(2):
             for k in range(2):
                 J += 0.125*I[i:n1[0]*2:2,j:n1[1]*2:2,k:n1[2]*2:2]
-    return J 
+    return J
+
+def down(I,ndown):
+    '''Downsample by a factor of ndown = [ndown0,ndown1,ndown2]
+    '''
+    ndown = np.array(ndown)
+    n0 = np.array(I.shape)
+    n1 = np.array(n0)//ndown
+    J = np.zeros(n1)
+    factor = 1.0 / np.prod(ndown)
+    for i in range(ndown[0]):
+        for j in range(ndown[1]):
+            for k in range(ndown[2]):
+                J += I[i:n1[0]*ndown[0]:ndown[0],j:n1[1]*ndown[1]:ndown[1],k:n1[2]*ndown[2]:ndown[2]] * factor
+    return J
 
 # upsample the v
 def upsample(I,nup):
@@ -965,9 +998,7 @@ def lddmm_multires(I,J,factors,**kwargs):
     
     Factors is a list of downsampling factors which can be either a list of integers, or a list of triples of integers
     
-    
-                
-    
+
     TO DO
     '''
     pass
