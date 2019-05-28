@@ -1,0 +1,78 @@
+//Bspline Transformation - updated May 2012
+
+//------------ImageTypes
+(FixedInternalImagePixelType "float")
+(FixedImageDimension 3)
+(MovingInternalImagePixelType "float")
+(MovingImageDimension 3)
+
+//------------Components
+(Registration "MultiResolutionRegistration")
+(FixedImagePyramid "FixedSmoothingImagePyramid")
+(MovingImagePyramid "MovingSmoothingImagePyramid")
+(Interpolator "BSplineInterpolator")
+(Metric "AdvancedMattesMutualInformation")
+(Optimizer "StandardGradientDescent")
+(ResampleInterpolator "FinalBSplineInterpolator")
+(Resampler "DefaultResampler")
+(Transform "BSplineTransform")
+
+(ErodeMask "false" )
+
+(NumberOfResolutions 4)
+(FinalGridSpacingInVoxels 8 8 8)
+//(GridSpacingSchedule 4.0 4.0 4.0 3.0 3.0 3.0 2.0 2.0 2.0 1.0 1.0 1.0)
+
+(HowToCombineTransforms "Compose")
+
+// ----------- Write options
+(WriteTransformParametersEachIteration "false")
+(WriteResultImage "true")
+(CompressResultImage "false")
+(WriteResultImageAfterEachResolution "true")
+(ShowExactMetricValue "false")
+(WriteDiffusionFiles "false")
+
+//------------Option supported in elastix 4.1:
+(UseFastAndLowMemoryVersion "true")
+
+//------------Maximum number of iterations in each resolution level:
+(MaximumNumberOfIterations 5000 )
+
+//------------Number of grey level bins in each resolution level:
+(NumberOfHistogramBins 32 )
+(FixedLimitRangeRatio 0.0)
+(MovingLimitRangeRatio 0.0)
+(FixedKernelBSplineOrder 3)
+(MovingKernelBSplineOrder 3)
+
+//------------Number of spatial samples used to compute the mutual information in each resolution level:
+(ImageSampler "RandomCoordinate")
+(FixedImageBSplineInterpolationOrder 1 )
+(UseRandomSampleRegion "true")
+(SampleRegionSize 2 2 2)
+(NumberOfSpatialSamples 10000 )
+(NewSamplesEveryIteration "true")
+
+(CheckNumberOfSamples "true")
+(MaximumNumberOfSamplingAttempts 10)
+
+//------------Order of B-Spline interpolation used in each resolution level:
+(BSplineInterpolationOrder 1)
+
+//------------Order of B-Spline interpolation used for applying the final deformation:
+(FinalBSplineInterpolationOrder 1)
+
+//------------Default pixel value for pixels that come from outside the picture:
+(DefaultPixelValue 0)
+
+//------------SP: Param_a in each resolution level. a_k = a/(A+k+1)^alpha
+(SP_a 1000.0 )
+
+//------------SP: Param_A in each resolution level. a_k = a/(A+k+1)^alpha
+(SP_A 5.0 )
+
+//------------SP: Param_alpha in each resolution level. a_k = a/(A+k+1)^alpha
+(SP_alpha 0.6 )
+//------------(ResultImagePixelType "unsigned short")
+(ResultImageFormat "tif")

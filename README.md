@@ -36,7 +36,7 @@ ENVLOCATION=~/lddmm_env
 source $LOCATION/bin/activate
 
 # install requirements
-pip3 install ipython jupyter tensorflow numpy matplotlib nibabel
+pip3 install ipython jupyter tensorflow numpy scipy matplotlib nibabel
 
 # clone git repo
 INSTALLLOCATION=~
