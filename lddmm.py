@@ -598,7 +598,11 @@ def lddmm(I,J,**kwargs):
         phi1tinv2 = interp3(x0I, x1I, x2I, phi1tinv2-X2I, X0s, X1s, X2s) + X2s
 
         # compute the gradient of the image at this time
-        fIt = (It[t]-Ibar)*CovIJ/VarI + Jbar
+        #fIt = (It[t]-Ibar)*CovIJ/VarI + Jbar
+        fIt = tf.zeros_like(I)
+        for o in range(order+1):
+            fIt += (It[t]**o)*coeffs[o]    
+        
         fI_0,fI_1,fI_2 = grad3(fIt, dxI)
 
         # compute the determinanat of jacobian
@@ -833,7 +837,7 @@ def downsample(data, factor, average=None):
     ''' 
     Downsample data by integer factor, averaging by default
     
-    TODO
+    TODO: this function is not implemented
     '''
     # check if we should do averaging or not
     if average is None:
