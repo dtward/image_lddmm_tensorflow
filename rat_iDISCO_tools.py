@@ -3,7 +3,7 @@ import scipy.interpolate as spi
 import matplotlib.pyplot as plt
 import vis
 
-def nonuniformity_corrrection(xJ, J, a=1.0, p=2.0):
+def nonuniformity_corrrection(xJ, J, a=1.0, p=2.0, e=2e-1, niter=10, nb=100, minlog=100, binwidth_factor=1.0):
     
     # get nx and dx
     x0J,x1J,x2J = xJ
@@ -21,14 +21,9 @@ def nonuniformity_corrrection(xJ, J, a=1.0, p=2.0):
                         ))**p
     Khat = 1.0/(Lhat**2)
 
-    # anyway, compute histogram
-
+    #  compute histogram
     f = plt.figure()
     f2,ax2 = plt.subplots(1,2)
-    nb = 100
-    minlog = 100
-    niter = 10
-    e = 2e-1
 
     Jc = np.array(J)
     Jc[Jc < minlog] = minlog
@@ -41,7 +36,7 @@ def nonuniformity_corrrection(xJ, J, a=1.0, p=2.0):
         bins = np.linspace(binrange[0],binrange[1],nb)
         hist =  np.zeros_like(bins)
         db = bins[2] - bins[1]
-        width = db*1.0
+        width = db*binwidth_factor
         for i in range(nb):
             hist[i] = np.sum( np.exp( - (lJc.ravel() - bins[i])**2 /2.0/width**2) * np.sqrt(2.0*np.pi*width**2) )
         dhist = np.gradient(hist,db)
@@ -59,7 +54,6 @@ def nonuniformity_corrrection(xJ, J, a=1.0, p=2.0):
         vis.imshow_slices(lJchsb,fig=f,x=xJ)
 
         # step
-
         lJc = lJc + e * lJchsb
 
         # normalize
