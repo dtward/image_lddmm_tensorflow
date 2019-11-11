@@ -20,7 +20,19 @@ Below shows an illustration of deforming an atlas human MRI to match a target hu
 ## Examples
 Please see Example*.ipynb to see various examples.  Ideally you will find one that is similar to your desired application, and you can run it on your data with minimal changes.
 
+[Human MRI registration using images from mricloud.org](https://github.com/dtward/image_lddmm_tensorflow/blob/master/Example_Human_MRI.ipynb)
+
+[Human MRI registration with simulated resected tissue](https://github.com/dtward/image_lddmm_tensorflow/blob/master/Example_Human_MRI_Resection.ipynb)
+
+[Mouse serial two photon registration using the Allen atlas and a target with a brightness artifact at an injection site](https://github.com/dtward/image_lddmm_tensorflow/blob/master/Example_Mouse_Allen_to_Fluoro.ipynb)
+
+[Mouse Nissl stain from Cold Spring harbor Laboratory](https://github.com/dtward/image_lddmm_tensorflow/blob/master/Example_Mouse_Nissl.ipynb)
+
+[Rat Waxholm MRI atlas to iDISCO target](https://github.com/dtward/image_lddmm_tensorflow/blob/master/Example_iDISCO_rat_waxholm.ipynb)
+
 ## Installation
+
+The human MRI with resection example can be run without any installation using [google colab here](https://colab.research.google.com/drive/1vFkEqwJJLnoRp0nTMUwHXI0MkN8FkTjE): 
 
 This package requires tensorflow running in python 3, as well as several other pythonpackages.  These packages are numpy for working with arrays, matplotlib for generating figures, nibabel for reading neuroimages, ipython and jupyter for running interactive notebooks.
 
@@ -52,9 +64,5 @@ jupyter-notebook
 ```
 
 Other methods (including GPU) and troubleshooting for installing tensorflow can be found here https://www.tensorflow.org/install/
-
-## To do
-1. (coding) Optimize for GPU.
-1. (application) Incorporate more example model organisms, and choose optimal parameters fo reach.
 
 
