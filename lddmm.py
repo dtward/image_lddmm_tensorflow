@@ -8,7 +8,35 @@ import argparse
 import nibabel as nib
 import warnings
 import scipy.interpolate as spi
-#from pyevtk.hl import imageToVTK  # for writing outputs
+
+
+'''
+In this file we include several basic functions that were not present natively in tensorflow,
+and we implement the algorithm for image registration with intensity transformation and missing data.
+
+The basic functions implemented are:
+interp3: trilinear interpolation for deforming images and vector fields
+grad3: computes the 3D gradient of a function
+down: downsamples images by averaging over a rectangular neighborhood
+down2: a faster downsampling version for downsampling by 2
+upsample: upsample data by zero padding in the Fourier domain.  This is necessary for upsampling
+    lddmm velocity fields without changing the regularization energy.
+transform_data: applies the calcuated deformation fields to image data
+affine_transform_data: applies an affine transformation to data with a simpler interface
+orientation_to_matrix: computes transformation matrices that relate images of different orientations.
+    For example 'LAS' denotes Left-Anterior-Superior, which means the first image axis
+    contains data from right to left, the second from posterior to anterior, 
+    and the third from inferior to superior.
+
+Next, the lddmm algorithm is implemented in two parts in the function 'lddmm'.  
+In the first part a tensorflow computatoin  graph is defined that applies 
+an existing deformation to images and calculates a cost function gradient.
+In the second part, these calculations are performed on data and optimization is carried out.
+
+Finally, a basic command line interface is implemented.
+
+'''
+
  
 dtype = tf.float32
 idtype = tf.int64
@@ -18,11 +46,15 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     Interpolate a 3D tensorflow image I
     with voxels corresponding to locations in x0, x1, x2 (1d np arrays)
     at the points phi0, phi1, phi2 (3d arrays)
-    To do: think about how to apply 0 boundary conditions (rather than nearest)
-    The simplest way is just to pad the images with 0 by one voxel on all sides
-    
-    Note optional method, 0 for nearest neighbor, and 1 for trilinear (default)
-    Note optional argument for dtype, you may want to set it to idtype when doing nearest
+        
+    Note optional method:
+        0 for nearest neighbor, 
+        1 for trilinear (default)
+    Note optional dtype:
+        you may want to set it to idtype when doing nearest interpolation for label images
+      
+      
+    Output is the image I transformed by interpolation.
     '''
     if method != 0 and method != 1:
         raise ValueError('method must be 0 (nearest neighbor) or 1 (trilinear)')
@@ -124,7 +156,7 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     I110 = tf.reshape(I110_flat, nxout)
     I111 = tf.reshape(I111_flat, nxout)
 
-    # combine them!
+    # combine them
     p000 = tf.cast((1.0-phi0_p)*(1.0-phi1_p)*(1.0-phi2_p), dtype=image_dtype)
     p001 = tf.cast((1.0-phi0_p)*(1.0-phi1_p)*(    phi2_p), dtype=image_dtype)
     p010 = tf.cast((1.0-phi0_p)*(    phi1_p)*(1.0-phi2_p), dtype=image_dtype)
@@ -144,26 +176,16 @@ def interp3(x0,x1,x2,I,phi0,phi1,phi2,method=1,image_dtype=dtype):
     
     return Il
 
-def interp3_scipy(x0,x1,x2,I,phi0,phi1,phi2,method=1):
-    '''This method is for interpolating using numpy arrays only
-    This avoids some issues with tensorflow precision and maximum size    
-    '''
-    #pi.interpn((x0,x1,x2),I,np.stack((phi0,phi1,phi2),axis=-1), )
-    
-    pass
 
 def grad3(I,dx):
-    #I_0 = (tf.manip.roll(I,shift=-1,axis=0) - tf.manip.roll(I,shift=1,axis=0))/2.0/dx[0]
-    #I_1 = (tf.manip.roll(I,shift=-1,axis=1) - tf.manip.roll(I,shift=1,axis=1))/2.0/dx[1]
-    #I_2 = (tf.manip.roll(I,shift=-1,axis=2) - tf.manip.roll(I,shift=1,axis=2))/2.0/dx[2]
+    '''
+    Calculate the gradent of a 3D image
+    Inputs are I, a 3D image
+    and dx, a 3-tuple of voxeldimensions
     
-    #out[0,:] = out[1,:]-out[0,:] # this doesn't work in tensorflow
-    # generally you cannot assign to a tensor
-    # problems with energy calculations are due to this gradient function
+    Outputs are each component of the gradient returned as a tuple
+    '''
     
-    # in particular the determinant of jacobian part which is very much noncircular
-    # this leads to discontinuity which becomes very large regularization energy
-    # enforcing boundary conditions is essential
     I_0_m = (I[1,:,:] - I[0,:,:])/dx[0]
     I_0_p = (I[-1,:,:] - I[-2,:,:])/dx[0]
     I_0_0 = (I[2:,:,:]-I[:-2,:,:])/2.0/dx[0]
@@ -177,6 +199,245 @@ def grad3(I,dx):
     I_2_0 = (I[:,:,2:]-I[:,:,:-2])/2.0/dx[2]
     I_2 = tf.concat([I_2_m[:,:,None], I_2_0, I_2_p[:,:,None]], axis=2)
     return I_0, I_1, I_2
+
+def down(I,ndown):
+    '''Downsample images by averaging over a rectangular neighborhood
+    
+    Inputs are a 3D image I
+    a downsampling factor on each axis ndown = [ndown0,ndown1,ndown2]
+    
+    Output is the downsampled image.
+    '''
+    ndown = np.array(ndown)
+    n0 = np.array(I.shape)
+    n1 = np.array(n0)//ndown
+    J = np.zeros(n1)
+    factor = 1.0 / np.prod(ndown)
+    for i in range(ndown[0]):
+        for j in range(ndown[1]):
+            for k in range(ndown[2]):
+                J += I[i:n1[0]*ndown[0]:ndown[0],j:n1[1]*ndown[1]:ndown[1],k:n1[2]*ndown[2]:ndown[2]] * factor
+    return J     
+        
+def down2(I):
+    '''Downsample by a factor of 2 by averaging over a 2x2x2 neighborhood
+    Input is an image I
+    Output is the downsampled image
+    '''
+    n0 = np.array(I.shape)
+    n1 = n0//2
+    J = np.zeros(n1)
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                J += 0.125*I[i:n1[0]*2:2,j:n1[1]*2:2,k:n1[2]*2:2]
+    return J
+
+
+def upsample(I,nup):
+    '''Upsample by zero padding in the Fourier domain.
+    Inputs are I, an image to be upsampled
+    nup, the desired size of the upsampled image.
+    
+    Output is the upsapmled image.
+    '''
+    n = np.array(I.shape)
+    
+    # now I want to upsample by zero padding in the Fourier domain
+    even = (1 - (n % 2)).astype(int)
+    shift = even * n//2 + (1-even) * (n-1)//2
+    
+    J = np.array(I)
+    
+    # upsample the 0th axis
+    if nup[0] > n[0]:
+        Jhat = np.fft.fft(J, axis=0)
+        Jhat = np.roll(Jhat,shift[0],axis=0)
+        if even[0]:
+            # if even, make nyquist paired
+            Jhat[0,:,:] /= 2.0
+            Jhat = np.pad(Jhat,pad_width=((0,1),(0,0),(0,0)),mode='edge')
+            n[0] = n[0] + 1
+        # now pad
+        Jhat = np.pad(Jhat,pad_width=((0,nup[0]-n[0]),(0,0),(0,0)),mode='constant',constant_values=0)
+        # shift it
+        Jhat = np.roll(Jhat,-shift[0],axis=0)
+        J = np.fft.ifft(Jhat,axis=0).real
+    
+    # upsample the 1th axis
+    if nup[1] > n[1]:
+        Jhat = np.fft.fft(J, axis=1)
+        Jhat = np.roll(Jhat,shift[1],axis=1)
+        if even[1]:
+            # if even, make nyquist paired
+            Jhat[:,0,:] /= 2.0
+            Jhat = np.pad(Jhat,pad_width=((0,0),(0,1),(0,0)),mode='edge')
+            n[1] = n[1] + 1
+        # now pad
+        Jhat = np.pad(Jhat,pad_width=((0,0),(0,nup[1]-n[1]),(0,0)),mode='constant',constant_values=0)
+        # shift it
+        Jhat = np.roll(Jhat,-shift[1],axis=1)
+        J = np.fft.ifft(Jhat,axis=1).real
+    
+    # upsample the 2th axis
+    if nup[2] > n[2]:
+        Jhat = np.fft.fft(J, axis=2)
+        Jhat = np.roll(Jhat,shift[2],axis=2)
+        if even[1]:
+            # if even, make nyquist paired
+            Jhat[:,:,0] /= 2.0
+            Jhat = np.pad(Jhat,pad_width=((0,0),(0,0),(0,1)),mode='edge')
+            n[2] = n[2] + 1
+        # now pad
+        Jhat = np.pad(Jhat,pad_width=((0,0),(0,0),(0,nup[2]-n[2])),mode='constant',constant_values=0)
+        # shift it
+        Jhat = np.roll(Jhat,-shift[2],axis=2)
+        J = np.fft.ifft(Jhat,axis=2).real
+    
+    # correct normalization
+    # note inverse has 1/n
+    J = J * np.prod(nup) / np.prod(n);
+
+    return J
+
+
+def transform_data(x0,x1,x2,data,tform0,tform1,tform2,
+                   y0=None,y1=None,y2=None,y=None,
+                   t0=None,t1=None,t2=None,t=None,
+                   **kwargs):
+    ''' 
+    Transform data using an arbitrary position field.
+    
+    Inputs are:
+    x0,x1,x2: scalar arrays containing location of voxels in data to be transformed
+    data: a 3D image to be transformed    
+    tform0,tform1,tform2: a 3 component transformation where each component is a 3D position field
+        the transform need not be the same size as the input data
+    
+    Often this function is applied when changing resolution.  In this case also specify:
+    y0,y1,y2: scalar arrays indicating the positions at which tform is resampled at
+    t0,t1,t2: scalar arrays indicating the positions of the voxels in tform
+    
+    
+    Output is the transformed data.
+
+    '''
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())        
+        # unpack tuples
+        if y is not None:
+            y0,y1,y2 = y
+        if t is not None:
+            t0,t1,t2 = t
+        
+        
+        
+        if y0 is None:
+            pass
+        else:
+            if t0 is None:
+                raise ValueError('If you set y (locations to resample transform) you must set t (grid points of transform)')
+            Y0,Y1,Y2 = np.meshgrid(y0,y1,y2,indexing='ij')
+            # first we upsample the transformation
+            # note that there is a problem here
+            # the transform is typically not defined on the grid points x or y
+            tform0 = interp3(t0,t1,t2,tform0,Y0,Y1,Y2)
+            tform1 = interp3(t0,t1,t2,tform1,Y0,Y1,Y2)
+            tform2 = interp3(t0,t1,t2,tform2,Y0,Y1,Y2)
+
+        # now upsample the data
+        output = interp3(x0,x1,x2,data,tform0,tform1,tform2,**kwargs).eval()
+    return output
+
+
+def affine_transform_data(x0,x1,x2,data,A,y0=None,y1=None,y2=None,y=None,**kwargs):
+    '''
+    Apply an affine transform to data using a slightly simplified interface.
+    
+    Inputs are:
+    x0,x1,x2: scalar arrays containing location of voxels in data to be transformed
+    data: a 3D image to be transformed
+    
+    Often this function is applied when changing resolution.  In this case also specify:
+    y0,y1,y2: scalar arrays indicating the positions at which the transformed image is resampled at
+    
+    Output is the transformed image
+    
+    '''
+    B = np.linalg.inv(A)
+    if y is not None:
+        y0,y1,y2=y
+    if y0 is None:
+        y0 = x0
+        y1 = x1
+        y2 = x2
+    Y0,Y1,Y2 = np.meshgrid(y0,y1,y2,indexing='ij')
+    tform0 = B[0,0]*Y0 + B[0,1]*Y1 + B[0,2]*Y2 + B[0,3]
+    tform1 = B[1,0]*Y0 + B[1,1]*Y1 + B[1,2]*Y2 + B[1,3]
+    tform2 = B[2,0]*Y0 + B[2,1]*Y1 + B[2,2]*Y2 + B[2,3]
+    
+    return transform_data(x0,x1,x2,data,tform0,tform1,tform2,**kwargs)
+    
+
+
+def orientation_to_matrix(input_str, desired_str):
+    ''' Specify current and desired orientatoin with a sring of symbols 
+    and produce am affine transformation matrix to change orientation.
+    Symbols are: R/L (right/left)
+                 A/P (anterior/posterior)
+                 S/I (superior/inferior)
+
+    Each symbol specifies direction from negative to positive for three axes
+    e.g. RPI means x0 axis moves from left to right
+                   x1 axis moves from anterior to posterior
+                   x2 axis moves from superior to inferior
+                   
+    Inputs are:
+    input_str: the orientation of an image to be transformed
+    desired_str: the orientation of the desired transformed image
+    '''
+    if (not isinstance(input_str, str)) or (not isinstance(desired_str, str)):
+        raise TypeError('inputs must be orientation strings, e.g. RPI for right posterior anterior')
+    input_str = input_str.upper()
+    desired_str = desired_str.upper()
+    if len(input_str) != 3 or len(desired_str) != 3:
+        raise ValueError('length of input strings must be 3')
+    
+    # the symbols tell us about permutations and flips
+    # as a canonical use analyze default "transverse unflipped (LAS*)" where * is slice dimension    
+    def canonical_to_observed(input_str):
+        '''This function is internal because canonical means different things to different people.
+        In particular, LAS is NOT right handed.'''
+        A = np.eye(4)
+
+        if 'R' in input_str:
+            A = np.diag([-1,1,1,1]) @ A
+        if 'P' in input_str:
+            A = np.diag([1,-1,1,1]) @ A
+        if 'I' in input_str:
+            A = np.diag([1,1,-1,1]) @ A
+    
+        # now we just have to worry about permutation
+        input_str = input_str.replace('R','L')
+        input_str = input_str.replace('P','A')
+        input_str = input_str.replace('I','S')
+        
+        Lind = input_str.find('L')
+        Aind = input_str.find('A')
+        Sind = input_str.find('S')
+        
+        permutation = np.array([Lind,Aind,Sind])
+        zero_to_three = np.arange(4)
+        P = np.array([zero_to_three == permutation[0],
+                     zero_to_three == permutation[1],
+                     zero_to_three == permutation[2],
+                     [0,0,0,1]]).T
+        A = P@A
+        return A
+    A = canonical_to_observed(desired_str) @ np.linalg.inv(canonical_to_observed(input_str))                
+    if np.linalg.det(A) < 0:
+        warnings.warn('Determinant of orientation transformation is negative.  Maybe you mixed up left and right?')
+    return A
 
 
 def lddmm(I,J,**kwargs):
@@ -192,9 +453,18 @@ def lddmm(I,J,**kwargs):
     Cost function is \frac{1}{2\sigma^2_R}\int \int v_t^T(x) A v_t(x) *(1/nT) dx dt
         + \frac{1}{2\sigma^2_M}\int |I(\varphi_1^{-1}(x)) - J(x)|^2 dx
         
+    The deformation is formed by integrating a flow with kwargs['nt'] timesteps.
+    If nt is 0, only affine transformations and not deformations are computed.
     
-    If nt is 0, only do affine!
-    Read default options below for descriptions
+    If kwargs['nMstep'] is greater than 0, this will run an expectation maximization 
+    algorithm for registration in the presense of anomalous data.  The "M step" maximizes
+    the likelihood of transformation prameters, and the "E step" calculates the 
+    probability that data is anomalous at each pixel.
+    
+    All options are described below in the "default parameters" section
+    
+    The output is a dictionary containing deformations, deformed images, 
+    and several other intermediate results
     '''
     tf.reset_default_graph()
 
@@ -203,35 +473,38 @@ def lddmm(I,J,**kwargs):
     ################################################################################
     # default parameters
     params = dict();
+    # image size and shape
     params['x0I'] = np.arange(I.shape[0], dtype=float)
     params['x1I'] = np.arange(I.shape[1], dtype=float)
     params['x2I'] = np.arange(I.shape[2], dtype=float)
     params['x0J'] = np.arange(J.shape[0], dtype=float)
     params['x1J'] = np.arange(J.shape[1], dtype=float)
     params['x2J'] = np.arange(J.shape[2], dtype=float)
-    params['a'] = 5.0
-    params['p'] = 2 # should be at least 2 in 3D
-    params['nt'] = 5
+    # Transformation parameters
+    params['a'] = 5.0 # spatial length scale
+    params['p'] = 2 # power of laplacian (should be at least 2 in 3D to guarantee diffeomorphisms)
+    params['nt'] = 5 # number of timesteps
+    params['A0'] = np.eye(4) # initial guess for affine transformation
+    params['rigid'] = False # rigid only versus general affine
+    params['order'] = 1 # order of polynomial for predicting intensity, must be at least 1    
+    # cost function parameters
     params['sigmaM'] = 1.0 # matching weight 1/2/sigma^2
     params['sigmaA'] = 10.0 # matching weight for "artifact image"
     params['sigmaR'] = 1.0 # regularization weight 1/2/sigma^2
+    # optimization parameters    
     params['eV'] = 1e-1 # step size for deformation parameters
-    params['eL'] = 0.0 # linear part of affine
-    params['eT'] = 0.0 # step size for translation part of affine
-    params['rigid'] = False # rigid only versus general affine
+    params['eL'] = 0.0 # step size for linear part of affine
+    params['eT'] = 0.0 # step size for translation part of affine    
     params['niter'] = 100 # iterations of gradient decent
     params['naffine'] = 0 # do affine only for this number
     params['post_affine_reduce'] = 0.1 # reduce affine step sizes by this much once nonrigid starts
     params['nMstep'] = 0 # number of iterations of M step each E step in EM algorithm, 0 means don't use this feature
     params['nMstep_affine'] = 0 # number of iterations of M step during affine    
+    # artifact parameters    
     params['CA0'] = np.mean(J) # initial guess for value of artifact
-    params['W'] = 1.0 # a fixed weight for each pixel in J, or just a number
-    params['order'] = 1 # order of polynomial for predicting intensity, must be at least 1
+    params['W'] = 1.0 # a fixed weight for each pixel in J, or just a number.  Can be used for known artifact locations
     
-    # initial guess
-    params['A0'] = np.eye(4)
-    
-    
+     
     if verbose: print('Set default parameters')
     
     
@@ -239,6 +512,7 @@ def lddmm(I,J,**kwargs):
     # parameter setup
     # start by updating with any input arguments
     params.update(kwargs)
+    # image size and shape
     if 'xI' in params:
         x0I,x1I,x2I = params['xI']
     else:
@@ -255,30 +529,16 @@ def lddmm(I,J,**kwargs):
     xJ = [x0J,x1J,x2J]
     X0I,X1I,X2I = np.meshgrid(x0I, x1I, x2I, indexing='ij')
     X0J,X1J,X2J = np.meshgrid(x0J, x1J, x2J, indexing='ij')
-    
     dxI = [x0I[1]-x0I[0], x1I[1]-x1I[0], x2I[1]-x2I[0]]
     dxJ = [x0J[1]-x0J[0], x1J[1]-x1J[0], x2J[1]-x2J[0]]
-    
     nxI = I.shape
-    nxJ = J.shape
+    nxJ = J.shape    
+    xJp = [np.concatenate(((xJ[c][0]-dxJ[c])[None], xJ[c], (xJ[c][-1]+dxJ[c])[None]))  for c in range(3)] # padded for boundary conditions
     
-    # padded
-    xJp = [np.concatenate(((xJ[c][0]-dxJ[c])[None], xJ[c], (xJ[c][-1]+dxJ[c])[None]))  for c in range(3)]
-    
-    a = params['a']
-    p = params['p']
-    
-    # matching
-    sigmaM = params['sigmaM']
-    sigmaM2 = sigmaM**2
-    # regularization
-    sigmaR = params['sigmaR']
-    sigmaR2 = sigmaR**2
-    # artifact
-    sigmaA = params['sigmaA']
-    sigmaA2 = sigmaA**2
-    
-    nt = params['nt']
+    # Transformation parameters
+    a = params['a'] # spatial length scale
+    p = params['p'] # power of laplacian (should be at least 2 in 3D to guarantee diffeomorphisms)
+    nt = params['nt'] # number of timesteps
     if 'dt' in params:
         dt = params['dt']
     else:
@@ -286,39 +546,43 @@ def lddmm(I,J,**kwargs):
             dt = 1.0/nt
         else:
             dt = 0.0
-    
-    niter = params['niter']    
-    naffine = params['naffine']
-    if nt == 0: # only do affine
-        naffine = niter+1
-        
-    nMstep = params['nMstep']
-    nMstep_affine = params['nMstep_affine']
-    
-    # polynomial order
-    order = params['order']
+    order = params['order'] # polynomial order for predicting target image intensity from atlas
     if order < 1:
         raise ValueError('Polynomial order must be 1 (linear) or greater')
-    
-    # I may want these epsilons to be placeholders
-    eV = params['eV']
-    eL = params['eL']
-    eT = params['eT']
-    rigid = params['rigid']
-    post_affine_reduce = params['post_affine_reduce']
+    rigid = params['rigid'] # rigid only versus general affine
     if verbose: print('Initial affine transform {}'.format(params['A0']))
     A0 = tf.convert_to_tensor(params['A0'], dtype=dtype)
     
+    # cost function parameters
+    sigmaM = params['sigmaM'] # matching
+    sigmaM2 = sigmaM**2    
+    sigmaR = params['sigmaR'] # regularization
+    sigmaR2 = sigmaR**2    
+    sigmaA = params['sigmaA'] # artifact
+    sigmaA2 = sigmaA**2
+    
+    # optimization parameters
+    niter = params['niter'] # gradient descent iterations
+    naffine = params['naffine'] # gradient descent iterations of affinen only
+    if nt == 0: # only do affine
+        naffine = niter+1        
+    nMstep = params['nMstep'] # number of M steps per E step in EM algorithm for artifacts
+    nMstep_affine = params['nMstep_affine'] # number of M steps per E step in EM algorithm for artifacts during affine only phase 
+    eV = params['eV'] # step size for deformation parameters
+    eL = params['eL'] # step size for linear part of affine
+    eT = params['eT'] # step size for translation part of affine    
+    post_affine_reduce = params['post_affine_reduce'] # reduce affine step sizes by this much once nonrigid starts
+    
+    
+    # Get initial guess for deformation and resample if necessary
     # initial velocity, I need the nT in order to do this
     params['vt00'] = np.zeros((I.shape[0],I.shape[1],I.shape[2],nt),dtype=np.float32) 
     params['vt10'] = np.zeros((I.shape[0],I.shape[1],I.shape[2],nt),dtype=np.float32)
     params['vt20'] = np.zeros((I.shape[0],I.shape[1],I.shape[2],nt),dtype=np.float32)
-    # note this dtype should be set more robustly
     params.update(kwargs)
     vt00 = params['vt00'].astype(np.float32)
     vt10 = params['vt10'].astype(np.float32)
     vt20 = params['vt20'].astype(np.float32)
-    # check if these are the right size, if not, upsample them
     nt_check = vt00.shape[-1]
     if nt_check != nt:
         raise ValueError('input velocity field should be the same number of timesteps as nt parameter')        
@@ -343,10 +607,8 @@ def lddmm(I,J,**kwargs):
         vt10 = vt10.astype(np.float32)
         vt20 = vt20.astype(np.float32)
         
-    
-    
-    
-    
+            
+    # gradient descent step sizes set as placeholders
     eV_ph = tf.placeholder(dtype=dtype)
     eL_ph = tf.placeholder(dtype=dtype)
     eT_ph = tf.placeholder(dtype=dtype)
@@ -359,15 +621,13 @@ def lddmm(I,J,**kwargs):
         
         
     ################################################################################
-    # some initializations
-    # images
-    #CA = np.mean(J) # constant value for "artifact image", I should probably have a better initialzation
-    CA = params['CA0']
+    # some initializations    
+    CA = params['CA0'] # constant value for "artifact image"
     I = tf.convert_to_tensor(I, dtype=dtype)
     J = tf.convert_to_tensor(J, dtype=dtype)
     W = tf.convert_to_tensor(params['W'], dtype=dtype)
     
-    # build kernels
+    # build kernels for enforcing smoothness
     f0I = np.arange(nxI[0])/dxI[0]/nxI[0]
     f1I = np.arange(nxI[1])/dxI[1]/nxI[1]
     f2I = np.arange(nxI[2])/dxI[2]/nxI[2]
@@ -392,9 +652,8 @@ def lddmm(I,J,**kwargs):
     
     
     
-    # initialize tensorflow variables, note that I am not using built in training
-    # we can only declare these variables once
-    # so if it's already been done, just load them
+    # initialize tensorflow variables that will be optimized
+    # we need an "old" and a "new" version for our iterative algorithm
     with tf.variable_scope("", reuse=tf.AUTO_REUSE):
         A = tf.get_variable('A', dtype=dtype, trainable=False, initializer=A0)
         Anew = tf.get_variable('Anew', dtype=dtype, trainable=False, initializer=A0)
@@ -467,7 +726,6 @@ def lddmm(I,J,**kwargs):
         ERt.append(ER_)
     
     # now apply affine tranform
-    # note that we combine the transformations so there is no "double interpolation"
     B = tf.linalg.inv(A)
     X0s = B[0,0]*X0J + B[0,1]*X1J + B[0,2]*X2J + B[0,3]
     X1s = B[1,0]*X0J + B[1,1]*X1J + B[1,2]*X2J + B[1,3]
@@ -479,26 +737,17 @@ def lddmm(I,J,**kwargs):
     
     
     ################################################################################
-    # here I will include contrast transform (just linear for now)
+    # Calculate posterior probability weights that each pxiel is an artifact or real data
     WMsum = tf.reduce_sum(WM*W)
     WMW = WM*W
     WAW = WA*W
-    CA = tf.reduce_sum(J*WAW)/(tf.reduce_sum(WAW)+1.0e-6) # if WA is all zeros, this is gonna be a problem
+    CA = tf.reduce_sum(J*WAW)/(tf.reduce_sum(WAW)+1.0e-6) # avoid divide by zero possibility
     
-    #Ibar = tf.reduce_sum(AphiI*WMW)/WMsum
-    #I0 = AphiI-Ibar
-    #Jbar = tf.reduce_sum(J*WMW)/WMsum
-    #J0 = J-Jbar
-    #VarI = tf.reduce_sum(I0**2*WMW)/WMsum
-    #CovIJ = tf.reduce_sum(I0*J0*WMW)/WMsum
-    #fAphiI = (AphiI - Ibar) * CovIJ / VarI + Jbar
     
     
     
     ################################################################################
-    # nonlinear contrast transform
-    # get basis functions    
-    # note stacks along first dimension
+    # build polynomial contrast transform
     Is = tf.reshape(AphiI,[-1])
     Js = tf.reshape(J,[-1])
     WMWs = tf.reshape(WMW,[-1])
@@ -516,19 +765,19 @@ def lddmm(I,J,**kwargs):
     
     
     ################################################################################
-    # now we can update weights
+    # now we can update weights, this is the E step of the EM algorithm
     WMnew = tf.exp( tf.pow(fAphiI - J, 2) * (-0.5/sigmaM2 ) ) * 1.0/np.sqrt(2.0*np.pi*sigmaM2)
     WAnew = tf.exp( tf.pow(CA - J, 2) * (-0.5/sigmaA2 ) ) * 1.0/np.sqrt(2.0*np.pi*sigmaA2)
-    tiny = 1.0e-6
-    Wsum = WMnew+WAnew + tiny
-    WMnew = WMnew/Wsum
-    WAnew = WAnew/Wsum
+    Wsum = WMnew + WAnew
+    Wsum = Wsum + tf.reduce_max(Wsum)*1e-6
+    WMnew = WMnew / Wsum
+    WAnew = WAnew / Wsum
     
     
     
     
     ################################################################################
-    # get the energy of the flow
+    # get the energy of the flow and the sum of square error matching energy
     if nt > 0:
         ER = tf.reduce_sum(tf.stack(ERt))
     else:
@@ -544,7 +793,7 @@ def lddmm(I,J,**kwargs):
     
     ################################################################################
     # now we compute the gradient with respect to affine transform parameters
-    # this is for right perturbations, which I think I like now
+    # this is for right perturbations using matrix exponential parameterization
     # i.e. A \mapsto A expm( e dA)
     lambda1 = -WM*W*(fAphiI - J)/sigmaM2
     fAphiI_0, fAphiI_1, fAphiI_2 = grad3(fAphiI, dxJ)
@@ -575,8 +824,7 @@ def lddmm(I,J,**kwargs):
     
     
     ################################################################################
-    # Now the gradient with respect to the deformation parameters
-    # TODO: I may want to zero pad it, and get a padded domain as well, that way I can have nice zero boundary conditions which are appropriate for this error
+    # Now calculate gradient with respect to the deformation parameters
     lambda1p = tf.pad(lambda1,[[1,1],[1,1],[1,1]],'CONSTANT')
     
     # flow the error backwards
@@ -598,11 +846,9 @@ def lddmm(I,J,**kwargs):
         phi1tinv2 = interp3(x0I, x1I, x2I, phi1tinv2-X2I, X0s, X1s, X2s) + X2s
 
         # compute the gradient of the image at this time
-        #fIt = (It[t]-Ibar)*CovIJ/VarI + Jbar
         fIt = tf.zeros_like(I)
         for o in range(order+1):
-            fIt += (It[t]**o)*coeffs[o]    
-        
+            fIt += (It[t]**o)*coeffs[o] 
         fI_0,fI_1,fI_2 = grad3(fIt, dxI)
 
         # compute the determinanat of jacobian
@@ -634,10 +880,6 @@ def lddmm(I,J,**kwargs):
         grad0 = grad0 + v0/sigmaR2
         grad1 = grad1 + v1/sigmaR2
         grad2 = grad2 + v2/sigmaR2
-        
-        # note that an alternate strategy is to add vhat in the Fourier domain
-        # this will make it easier to include smoothing (i.e. preconditioned gradient desent)
-        # which can be good for optimization
 
         # and calculate the new v
         vt0new_.append(v0 - eV_ph*grad0)
@@ -682,9 +924,9 @@ def lddmm(I,J,**kwargs):
     
     
     ################################################################################
-    # now that that the graph is defined, we can do gradient descent
-    # I will do some plotting during the computations so that hopefully you can kill
-    # the job if things are not working without wasting a lot of time
+    # now that that the graph is defined, we can do gradient descent optimization
+    # Plotting is performed during the computations to visualize results
+    # initialize lists and figures for plotting
     EMall = []
     ERall = []
     Eall = []
@@ -696,6 +938,8 @@ def lddmm(I,J,**kwargs):
     if nMstep > 0: # weights
         fW = plt.figure()
         fWA = plt.figure()
+        
+    # create a tensorflow session and perform the update steps    
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer()) # this is always required
         
@@ -703,8 +947,7 @@ def lddmm(I,J,**kwargs):
         for it in range(niter):
             # take a step of gradient descent, and get some values to plot
             # for the first naffine steps, we just update affine
-            # afterwards, we update both simultaneously, but we shrink the affine steps
-            # because otherwise we tend to get oscillations
+            # afterwards, we update both simultaneously, but we shrink the affine stepsize
             if it < naffine:
                 if verbose: print('Taking affine only step')
                 _, EM_, ER_, E_, Idnp, lambda1np, Anp = sess.run([step_A,EM,ER,E,fAphiI,lambda1,Anew], feed_dict={eL_ph:eL, eT_ph:eT})
@@ -715,10 +958,13 @@ def lddmm(I,J,**kwargs):
                 Idnp, lambda1np, Anp, \
                 vt0np, vt1np, vt2np = sess.run([step,EM,ER,E,fAphiI,lambda1,Anew,vt0,vt1,vt2], feed_dict={eL_ph:eL*post_affine_reduce, eT_ph:eT*post_affine_reduce, eV_ph:eV})
             
-            #print(Anp)
+
+            # now we perform the E step of the EM algorithm for registration with artifacts
+            # this occurs only every nMstep iterations, or nMstep_affine iterations if we are in 
+            # the affine only optimization stage
             if (nMstep>0
                 and ( (it < naffine and not it%nMstep_affine) 
-                 or (it >= naffine and not it%nMstep) ) ): # default behavior to not use weights
+                 or (it >= naffine and not it%nMstep) ) ): 
                 print('Updating weights')
                 _, WMnp, WAnp = sess.run([step_W,WMnew,WAnew])
                 fW.clf()
@@ -731,14 +977,13 @@ def lddmm(I,J,**kwargs):
                 fWA.canvas.draw()
                 
             ################################################################################
-            # draw some pictures
+            # create plots
             f0.clf()
             vis.imshow_slices(Idnp, x=xJ, fig=f0)
             f0.suptitle('Deformed atlas (iter {})'.format(it))
             f1.clf()
             vis.imshow_slices(lambda1np, x=xJ, fig=f1)
             f1.suptitle('Error (iter {})'.format(it))
-            
             
             # save energy for each iteration
             EMall.append(EM_)
@@ -793,10 +1038,12 @@ def lddmm(I,J,**kwargs):
             f1.canvas.draw()
             f2.canvas.draw()
             
-            #f0.savefig('lddmm3d_example_iteration_{:03d}.png'.format(i))
+            # uncomment the line below to save a figure at every iteration
+            # this can be used to create movies
+            # f0.savefig('lddmm3d_example_iteration_{:03d}.png'.format(i))
             print('Finished iteration {}, energy {:3e} (match {:3e}, reg {:3e})'.format(it, E_, EM_, ER_))
             
-        # output variables (get them inside the session)
+        # collect output variables from this tensorflow session
         Anp,\
         vt0np,vt1np,vt2np,\
         phiinv0np,phiinv1np,phiinv2np,\
@@ -810,202 +1057,25 @@ def lddmm(I,J,**kwargs):
                                                      phiinvB0,phiinvB1,phiinvB2,\
                                                      Aphi1tinv0,Aphi1tinv1,Aphi1tinv2,\
                                                      WMnew,WAnew])
-    # we will use a dictionary as the output
-    # TODO output the deformed images (done)
-    # TODO output weights
-    output = {'A':Anp,
-              'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np,
-              'phiinv0':phiinv0np, 'phiinv1':phiinv1np, 'phiinv2':phiinv2np,
-              'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np,
-              'phiinvAinv0':phiinvB0np,'phiinvAinv1':phiinvB1np,'phiinvAinv2':phiinvB2np,
-              'Aphi0':Aphi1tinv0np,'Aphi1':Aphi1tinv1np,'Aphi2':Aphi1tinv2np,
-              'WM':WMnp, 'WA':WAnp,
-              'AphiI':Idnp,
+    # use a dictionary for output
+    output = {'A':Anp, # affine transform
+              'vt0':vt0np, 'vt1':vt1np, 'vt2':vt2np, # velocity field for computing deformation
+              'phiinv0':phiinv0np, 'phiinv1':phiinv1np, 'phiinv2':phiinv2np, # inverse transform (for deforming images)
+              'phi0':phi1tinv0np, 'phi1':phi1tinv1np, 'phi2':phi1tinv2np, # forward transform (for deforming points)
+              'phiinvAinv0':phiinvB0np,'phiinvAinv1':phiinvB1np,'phiinvAinv2':phiinvB2np, # inverse transform including affine
+              'Aphi0':Aphi1tinv0np,'Aphi1':Aphi1tinv1np,'Aphi2':Aphi1tinv2np, # forward transform including affine
+              'WM':WMnp, 'WA':WAnp, # matching and artifact posterior probabilities from EM aglorithm
+              'AphiI':Idnp, # the deformed atlas image
               'f_kernel':f, # figure of smoothing kernel      
               'f_deformed':f0, # figure for deformed atlas
-              'f_error':f1,
-              'f_energy':f2
+              'f_error':f1, # figure showing error
+              'f_energy':f2 # figure showing energy
              }
-    if nMstep > 0:
-        output['f_WM'] = fW
-        output['f_WA'] = fWA
+    if nMstep > 0: # if performing EM for artifacts
+        output['f_WM'] = fW # figure showing matching posterior probability
+        output['f_WA'] = fWA # figure showing artifact posterior probability
     return output
 
-
-
-def downsample(data, factor, average=None):
-    ''' 
-    Downsample data by integer factor, averaging by default
-    
-    TODO: this function is not implemented
-    '''
-    # check if we should do averaging or not
-    if average is None:
-        average = True
-    # check if a single downsampling factor or 3
-    try:
-        _ = iter(factor)
-    except TypeError as te:
-        factor = np.array([factor,factor,factor])
-    if len(factor) < 3:
-        raise ValueError('Downsampling factor needs to be either one or three elements.')
-        
-        
-def down2(I):
-    '''Downsample by a factor of 2'''
-    n0 = np.array(I.shape)
-    n1 = n0//2
-    J = np.zeros(n1)
-    for i in range(2):
-        for j in range(2):
-            for k in range(2):
-                J += 0.125*I[i:n1[0]*2:2,j:n1[1]*2:2,k:n1[2]*2:2]
-    return J
-
-def down(I,ndown):
-    '''Downsample by a factor of ndown = [ndown0,ndown1,ndown2]
-    '''
-    ndown = np.array(ndown)
-    n0 = np.array(I.shape)
-    n1 = np.array(n0)//ndown
-    J = np.zeros(n1)
-    factor = 1.0 / np.prod(ndown)
-    for i in range(ndown[0]):
-        for j in range(ndown[1]):
-            for k in range(ndown[2]):
-                J += I[i:n1[0]*ndown[0]:ndown[0],j:n1[1]*ndown[1]:ndown[1],k:n1[2]*ndown[2]:ndown[2]] * factor
-    return J
-
-# upsample the v
-def upsample(I,nup):
-    '''Upsample by zero padding in the Fourier domain'''
-    n = np.array(I.shape)
-    
-    # now I want to upsample by zero padding in the Fourier domain
-    even = (1 - (n % 2)).astype(int)
-    shift = even * n//2 + (1-even) * (n-1)//2
-    
-    J = np.array(I)
-    
-    # upsample the 0th axis
-    if nup[0] > n[0]:
-        Jhat = np.fft.fft(J, axis=0)
-        Jhat = np.roll(Jhat,shift[0],axis=0)
-        if even[0]:
-            # if even, make nyquist paired
-            Jhat[0,:,:] /= 2.0
-            Jhat = np.pad(Jhat,pad_width=((0,1),(0,0),(0,0)),mode='edge')
-            n[0] = n[0] + 1
-        # now pad
-        Jhat = np.pad(Jhat,pad_width=((0,nup[0]-n[0]),(0,0),(0,0)),mode='constant',constant_values=0)
-        # shift it
-        Jhat = np.roll(Jhat,-shift[0],axis=0)
-        J = np.fft.ifft(Jhat,axis=0).real
-    
-    # upsample the 1th axis
-    if nup[1] > n[1]:
-        Jhat = np.fft.fft(J, axis=1)
-        Jhat = np.roll(Jhat,shift[1],axis=1)
-        if even[1]:
-            # if even, make nyquist paired
-            Jhat[:,0,:] /= 2.0
-            Jhat = np.pad(Jhat,pad_width=((0,0),(0,1),(0,0)),mode='edge')
-            n[1] = n[1] + 1
-        # now pad
-        Jhat = np.pad(Jhat,pad_width=((0,0),(0,nup[1]-n[1]),(0,0)),mode='constant',constant_values=0)
-        # shift it
-        Jhat = np.roll(Jhat,-shift[1],axis=1)
-        J = np.fft.ifft(Jhat,axis=1).real
-    
-    # upsample the 2th axis
-    if nup[2] > n[2]:
-        Jhat = np.fft.fft(J, axis=2)
-        Jhat = np.roll(Jhat,shift[2],axis=2)
-        if even[1]:
-            # if even, make nyquist paired
-            Jhat[:,:,0] /= 2.0
-            Jhat = np.pad(Jhat,pad_width=((0,0),(0,0),(0,1)),mode='edge')
-            n[2] = n[2] + 1
-        # now pad
-        Jhat = np.pad(Jhat,pad_width=((0,0),(0,0),(0,nup[2]-n[2])),mode='constant',constant_values=0)
-        # shift it
-        Jhat = np.roll(Jhat,-shift[2],axis=2)
-        J = np.fft.ifft(Jhat,axis=2).real
-    
-    # correct normalization
-    # note inverse has 1/n
-    J = J * np.prod(nup) / np.prod(n);
-
-    return J
-
-def affine_transform_data(x0,x1,x2,data,A,y0=None,y1=None,y2=None,y=None,**kwargs):
-    B = np.linalg.inv(A)
-    if y is not None:
-        y0,y1,y2=y
-    if y0 is None:
-        y0 = x0
-        y1 = x1
-        y2 = x2
-    Y0,Y1,Y2 = np.meshgrid(y0,y1,y2,indexing='ij')
-    tform0 = B[0,0]*Y0 + B[0,1]*Y1 + B[0,2]*Y2 + B[0,3]
-    tform1 = B[1,0]*Y0 + B[1,1]*Y1 + B[1,2]*Y2 + B[1,3]
-    tform2 = B[2,0]*Y0 + B[2,1]*Y1 + B[2,2]*Y2 + B[2,3]
-    
-    return transform_data(x0,x1,x2,data,tform0,tform1,tform2,**kwargs)
-    
-def transform_data(x0,x1,x2,data,tform0,tform1,tform2,
-                   y0=None,y1=None,y2=None,y=None,
-                   t0=None,t1=None,t2=None,t=None,
-                   **kwargs):
-    ''' Transform data as follows.
-    Resample tform at the points specified in y (or don't resample' if y is None)
-    apply tform to data
-    data grid points are in x
-    If resampling you also need to specify the locations of the gridpoints in the transform
-    These are set in the t variables
-    '''
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())        
-        # unpack tuples
-        if y is not None:
-            y0,y1,y2 = y
-        if t is not None:
-            t0,t1,t2 = t
-        
-        
-        
-        if y0 is None:
-            pass
-        else:
-            if t0 is None:
-                raise ValueError('If you set y (locations to resample transform) you must set t (grid points of transform)')
-            Y0,Y1,Y2 = np.meshgrid(y0,y1,y2,indexing='ij')
-            # first we upsample the transformation
-            # note that there is a problem here
-            # the transform is typically not defined on the grid points x or y
-            tform0 = interp3(t0,t1,t2,tform0,Y0,Y1,Y2)
-            tform1 = interp3(t0,t1,t2,tform1,Y0,Y1,Y2)
-            tform2 = interp3(t0,t1,t2,tform2,Y0,Y1,Y2)
-
-        # now upsample the data
-        output = interp3(x0,x1,x2,data,tform0,tform1,tform2,**kwargs).eval()
-    return output
-
-
-def lddmm_multires(I,J,factors,**kwargs):
-    '''
-    Run multiresolution lddmm, computing downsampling of images and subsequent upsampling of velocity fields
-    
-    Any parameter that used to be innput to LDDMM can now be a list
-    
-    All lists should be the same length as factors.
-    
-    Factors is a list of downsampling factors which can be either a list of integers, or a list of triples of integers
-    
-
-    TO DO
-    '''
-    pass
 
 # if run as a script from the command line
 if __name__ == '__main__':
@@ -1019,7 +1089,8 @@ if __name__ == '__main__':
     sigmaM: noise scale for image matching (1/2/sigmaM^2 is fidelity weight)
     sigmaR: noise scale for deformation (1/2/sigmaR^2 is regularization weight)
     
-    There are many optional argument describing different parameters of hte algorithm.  
+    There are many optional argument describing different parameters of the algorithm, 
+    see lddmm function above and help message printed to command line.
     '''
     
     # create parser
@@ -1038,14 +1109,11 @@ if __name__ == '__main__':
     # optional arguments
     parser.add_argument('--affine', type=str, help='text filename storing initial affine transform (account for differences in orientation, defaults to identity)')
     parser.add_argument('--p', type=float, help='power of Laplacian in smoothing operator', metavar='power') # stored as p in my namespace
-
-    
     parser.add_argument('--niter', type=int, help='total number of iterations of gradient descent')
     parser.add_argument('--naffine', type=int, help='number of iterations of affine only optimization before deformation')    
     parser.add_argument('--post_affine_reduce', type=float, help='factor to reduce affine (improves numerical stability)')    
     parser.add_argument('--eL', type=float, help='gradient descent step size for linear part of affine')
     parser.add_argument('--eT', type=float, help='gradient descent step size for translation part of affine')
-    
     parser.add_argument('--nT', type=int, help='number of timesteps to integrate flow')
     
         
@@ -1178,23 +1246,7 @@ if __name__ == '__main__':
         out['f_WM'].savefig(args.prefix + 'atlas-weight.png')
         out['f_WA'].savefig(args.prefix + 'artifact-weight.png')
         
-    '''
-    # now write out the output
-    # following exapmle here: https://www.vtk.org/Wiki/VTK/Writing_VTK_files_using_python
-    phi = np.concatenate([out['phi0'][None], out['phi1'][None], out['phi2'][None]])
-    imageToVTK(args.prefix + "phi", cellData = {"phi" : phi} )
-    phiinv = np.concatenate([out['phiinv0'][None], out['phiinv1'][None], out['phiinv2'][None]])
-    imageToVTK(args.prefix + "phiinv", cellData = {"phiinv" : phi} )
-    # save the voxel locations
-    XI = np.meshgrid(*xI,indexing='ij')    
-    imageToVTK(args.prefix + "XI", cellData = {"XI" : XI} )
-    XJ = np.meshgrid(*xJ,indexing='ij')    
-    imageToVTK(args.prefix + "XJ", cellData = {"XJ" : XJ} )
-    Aphi = np.concatenate([out['Aphi0'][None], out['Aphi1'][None], out['Aphi2'][None]])
-    imageToVTK(args.prefix + "Aphi", cellData = {"Aphi" : Aphi} )
-    phiinvAinv = np.concatenate([out['phiinvAinv0'][None], out['phiinvAinv1'][None], out['phiinvAinv2'][None]])
-    imageToVTK(args.prefix + "phiinvAinv", cellData = {"phiinvAinv" : phiinvAinv} )
-    '''
+    
     # write output in numpy format
     phi = np.concatenate([out['phi0'][None], out['phi1'][None], out['phi2'][None]])
     np.save(args.prefix + "phi", phi)
@@ -1223,65 +1275,4 @@ if __name__ == '__main__':
                 f.write(str(B[r,c])+' ')
             f.write('\n')
             
-    # thats it!
     
-    
-# more utilities
-
-
-def orientation_to_matrix(input_str, desired_str):
-    ''' Specify orientation with a sring of symbols and produce a matrix to change orientation.
-    Symbols are: R/L (right/left)
-                 A/P (anterior/posterior)
-                 S/I (superior/inferior)
-              or D/V (dorsal/ventral) (not supported)
-    specify orientation with three symbols, meaning direction from negative to positive for three axes
-    e.g. RPI means x0 axis moves from left to right
-                   x1 axis moves from anterior to posterior
-                   x2 axis moves from superior to inferior
-    '''
-    if (not isinstance(input_str, str)) or (not isinstance(desired_str, str)):
-        raise TypeError('inputs must be orientation strings, e.g. RPI for right posterior anterior')
-    input_str = input_str.upper()
-    desired_str = desired_str.upper()
-    if len(input_str) != 3 or len(desired_str) != 3:
-        raise ValueError('length of input strings must be 3')
-    
-    # the symbols tell us about permutations and flips
-    # as a canonical use analyze default "transverse unflipped (LAS*)" where * is slice dimension
-    # what is the matrix that goes from canonical to your direction
-    # e.g. a matrix for LAS to RPI? this would just be three flips
-    # I'll do the following, first flip
-    def canonical_to_observed(input_str):
-        '''This function is internal because canonical means different things to different people.
-        In particular, LAS is NOT right handed.'''
-        A = np.eye(4)
-
-        if 'R' in input_str:
-            A = np.diag([-1,1,1,1]) @ A
-        if 'P' in input_str:
-            A = np.diag([1,-1,1,1]) @ A
-        if 'I' in input_str:
-            A = np.diag([1,1,-1,1]) @ A
-    
-        # now we just have to worry about permutation
-        input_str = input_str.replace('R','L')
-        input_str = input_str.replace('P','A')
-        input_str = input_str.replace('I','S')
-        
-        Lind = input_str.find('L')
-        Aind = input_str.find('A')
-        Sind = input_str.find('S')
-        
-        permutation = np.array([Lind,Aind,Sind])
-        zero_to_three = np.arange(4)
-        P = np.array([zero_to_three == permutation[0],
-                     zero_to_three == permutation[1],
-                     zero_to_three == permutation[2],
-                     [0,0,0,1]]).T
-        A = P@A
-        return A
-    A = canonical_to_observed(desired_str) @ np.linalg.inv(canonical_to_observed(input_str))                
-    if np.linalg.det(A) < 0:
-        warnings.warn('Determinant of orientation transformation is negative.  Maybe you mixed up left and right?')
-    return A
