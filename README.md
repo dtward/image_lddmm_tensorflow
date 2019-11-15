@@ -34,7 +34,7 @@ Please see Example*.ipynb to see various examples.  Ideally you will find one th
 
 The human MRI with resection example can be run without any installation using [google colab here](https://colab.research.google.com/drive/1vFkEqwJJLnoRp0nTMUwHXI0MkN8FkTjE): 
 
-This package requires tensorflow version 1 running in python 3, as well as several other pythonpackages.  These packages are numpy for working with arrays, matplotlib for generating figures, nibabel for reading neuroimages, ipython and jupyter for running interactive notebooks.
+This package requires tensorflow version 1 (this code was developed with 1.13.1) running in python 3, as well as several other pythonpackages.  These packages are numpy for working with arrays, matplotlib for generating figures, nibabel for reading neuroimages, ipython and jupyter for running interactive notebooks.
 
 Below is an example of how to install this package in unix.  You will need python 3.4, 3.5, or 3.6, and virtualenv.  Instructions for installing these can be found on https://www.tensorflow.org/install/.  You will also need git.
 
