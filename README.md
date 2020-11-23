@@ -45,7 +45,7 @@ ENVLOCATION=~/lddmm_env
 ./virtualenv $ENVLOCATION
 
 # activate virtual environment
-source $LOCATION/bin/activate
+source $ENVLOCATION/bin/activate
 
 # install requirements
 pip3 install ipython jupyter tensorflow==1.13.1 numpy matplotlib nibabel
